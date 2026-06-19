@@ -23,6 +23,9 @@ services:
   diwan:
     image: lfnovo/open_notebook:v1-latest
     environment:
+      # URL publique : Next.js (8502) proxifie /api/* vers le backend (5055) en interne.
+      # Sans cette variable, le frontend auto-détecte http://host:5055 (injoignable depuis le navigateur).
+      - API_URL=https://diwan.ai-mpower.com
       - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY}
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=root
