@@ -1,0 +1,41 @@
+# Dīwān — déploiement Coolify (Application Docker Compose, sourcée depuis ce repo Git).
+# Source de vérité versionnée — équivalent du modèle nizam-os (Afristrat/nexus-os).
+#
+# Domaine : fixé via la variable magique Coolify SERVICE_FQDN_<SERVICE>_<PORT>.
+#           Coolify génère les labels Traefik à partir de cette valeur → reproductible.
+# Secret  : OPEN_NOTEBOOK_ENCRYPTION_KEY n'est PAS versionné ici ; il est fourni
+#           via les Environment Variables de l'application Coolify.
+#
+# Phase 0 : image pré-construite lfnovo/open_notebook:v1-latest (validation de la chaîne).
+#           Le build depuis le Dockerfile du repo viendra quand on modifiera le cœur (fork divergent).
+
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v2
+    command: start --log info --user root --pass root rocksdb:/mydata/mydatabase.db
+    user: root
+    volumes:
+      - surreal_data:/mydata
+    environment:
+      - SURREAL_EXPERIMENTAL_GRAPHQL=true
+    restart: unless-stopped
+
+  diwan:
+    image: lfnovo/open_notebook:v1-latest
+    environment:
+      - SERVICE_FQDN_DIWAN_8502=http://diwan.ai-mpower.com
+      - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY}
+      - SURREAL_URL=ws://surrealdb:8000/rpc
+      - SURREAL_USER=root
+      - SURREAL_PASSWORD=root
+      - SURREAL_NAMESPACE=open_notebook
+      - SURREAL_DATABASE=open_notebook
+    volumes:
+      - notebook_data:/app/data
+    depends_on:
+      - surrealdb
+    restart: unless-stopped
+
+volumes:
+  surreal_data:
+  notebook_data:
