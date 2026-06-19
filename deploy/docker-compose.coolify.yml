@@ -1,8 +1,8 @@
 # Dīwān — déploiement Coolify (Application Docker Compose, sourcée depuis ce repo Git).
 # Source de vérité versionnée — équivalent du modèle nizam-os (Afristrat/nexus-os).
 #
-# Domaine : fixé via la variable magique Coolify SERVICE_FQDN_<SERVICE>_<PORT>.
-#           Coolify génère les labels Traefik à partir de cette valeur → reproductible.
+# Domaine : géré par Coolify via docker_compose_domains (champ « Domains for diwan »
+#           dans l'UI), mappé sur le service `diwan` port 8502 → labels Traefik.
 # Secret  : OPEN_NOTEBOOK_ENCRYPTION_KEY n'est PAS versionné ici ; il est fourni
 #           via les Environment Variables de l'application Coolify.
 #
@@ -23,7 +23,6 @@ services:
   diwan:
     image: lfnovo/open_notebook:v1-latest
     environment:
-      - SERVICE_FQDN_DIWAN_8502=http://diwan.ai-mpower.com
       - OPEN_NOTEBOOK_ENCRYPTION_KEY=${OPEN_NOTEBOOK_ENCRYPTION_KEY}
       - SURREAL_URL=ws://surrealdb:8000/rpc
       - SURREAL_USER=root
