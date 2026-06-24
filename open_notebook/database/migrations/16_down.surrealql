@@ -1,0 +1,2 @@
+-- Migration 16 rollback: remove output_dir from episode
+REMOVE FIELD IF EXISTS output_dir ON TABLE episode;

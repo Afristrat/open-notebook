@@ -1,0 +1,4 @@
+-- Migration 16: Add output_dir to episode for podcast progress tracking
+-- Stores the filesystem directory of an episode's artifacts so generation
+-- progress can be computed while the job is still running.
+DEFINE FIELD IF NOT EXISTS output_dir ON TABLE episode TYPE option<string>;
