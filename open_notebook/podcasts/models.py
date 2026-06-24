@@ -225,6 +225,15 @@ class PodcastEpisode(ObjectModel):
     command: Optional[Union[str, RecordID]] = Field(
         default=None, description="Link to surreal-commands job"
     )
+    output_dir: Optional[str] = Field(
+        default=None,
+        description=(
+            "Filesystem directory holding this episode's artifacts "
+            "(outline.json, transcript.json, clips/, audio/). Persisted at "
+            "creation time so generation progress can be computed by reading "
+            "the files on disk while the job is still running."
+        ),
+    )
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 

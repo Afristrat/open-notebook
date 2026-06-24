@@ -7,6 +7,7 @@ import {
   Language,
   PodcastGenerationRequest,
   PodcastGenerationResponse,
+  PodcastProgress,
 } from '@/lib/types/podcasts'
 
 export type EpisodeProfileInput = Omit<EpisodeProfile, 'id'>
@@ -43,6 +44,13 @@ export const podcastsApi = {
   retryEpisode: async (episodeId: string) => {
     const response = await apiClient.post<{ job_id: string; message: string }>(
       `/podcasts/episodes/${episodeId}/retry`
+    )
+    return response.data
+  },
+
+  getEpisodeProgress: async (episodeId: string) => {
+    const response = await apiClient.get<PodcastProgress>(
+      `/podcasts/episodes/${episodeId}/progress`
     )
     return response.data
   },

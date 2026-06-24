@@ -29,6 +29,7 @@ export const QUERY_KEYS = {
   notebookChatSession: (sessionId: string) => ['notebook-chat', 'sessions', sessionId] as const,
   podcastEpisodes: ['podcasts', 'episodes'] as const,
   podcastEpisode: (episodeId: string) => ['podcasts', 'episodes', episodeId] as const,
+  podcastProgress: (episodeId: string) => ['podcasts', 'episodes', episodeId, 'progress'] as const,
   episodeProfiles: ['podcasts', 'episode-profiles'] as const,
   speakerProfiles: ['podcasts', 'speaker-profiles'] as const,
   languages: ['languages'] as const,

@@ -64,6 +64,23 @@ export interface PodcastEpisode {
   error_message?: string | null
 }
 
+export type EpisodeProgressPhase =
+  | 'pending'
+  | 'outline'
+  | 'transcript'
+  | 'synthesizing'
+  | 'combining'
+  | 'done'
+  | 'failed'
+
+export interface PodcastProgress {
+  status?: EpisodeStatus | null
+  phase: EpisodeProgressPhase
+  done: number
+  total: number
+  percent: number
+}
+
 export interface PodcastGenerationRequest {
   episode_profile: string
   speaker_profile: string

@@ -15,6 +15,7 @@ from open_notebook.podcasts.models import (
     SpeakerProfile,
     _resolve_model_config,
 )
+from open_notebook.podcasts.vocalization import ensure_vocalization_installed
 
 try:
     from podcast_creator import configure, create_podcast
@@ -212,6 +213,15 @@ async def generate_podcast_command(
         if input_data.briefing_suffix:
             briefing += f"\n\nAdditional instructions: {input_data.briefing_suffix}"
 
+        # 7. Create output directory using UUID for filesystem-safe paths.
+        # Done BEFORE persisting the episode so output_dir can be stored on the
+        # record: progress tracking reads the artifacts in this directory while
+        # the job is still running (outline.json -> transcript.json -> clips/).
+        episode_dir_name, output_dir = build_episode_output_dir(DATA_FOLDER)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        logger.info(f"Created output directory: {output_dir}")
+
         # Create the record for the episode and associate with the ongoing command
         episode = PodcastEpisode(
             name=input_data.episode_name,
@@ -225,6 +235,7 @@ async def generate_podcast_command(
             audio_file=None,
             transcript=None,
             outline=None,
+            output_dir=str(output_dir),
         )
         await episode.save()
 
@@ -235,11 +246,9 @@ async def generate_podcast_command(
 
         logger.info(f"Generated briefing (length: {len(briefing)} chars)")
 
-        # 7. Create output directory using UUID for filesystem-safe paths
-        episode_dir_name, output_dir = build_episode_output_dir(DATA_FOLDER)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Created output directory: {output_dir}")
+        # Insert the Arabic per-line vocalization (tachkil) node into the
+        # podcast-creator graph. No-op for non-Arabic episodes. Idempotent.
+        ensure_vocalization_installed()
 
         # 8. Generate podcast using podcast-creator
         logger.info("Starting podcast generation with podcast-creator...")

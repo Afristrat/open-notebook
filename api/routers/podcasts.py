@@ -12,6 +12,7 @@ from api.podcast_service import (
     PodcastGenerationResponse,
     PodcastService,
 )
+from open_notebook.podcasts.progress import compute_episode_progress
 
 router = APIRouter()
 
@@ -29,6 +30,14 @@ class PodcastEpisodeResponse(BaseModel):
     created: Optional[str] = None
     job_status: Optional[str] = None
     error_message: Optional[str] = None
+
+
+class PodcastProgressResponse(BaseModel):
+    status: Optional[str] = None
+    phase: str
+    done: int
+    total: int
+    percent: int
 
 
 def _resolve_audio_path(audio_file: str) -> Path:
@@ -185,6 +194,38 @@ async def get_podcast_episode(episode_id: str):
     except Exception as e:
         logger.error(f"Error fetching podcast episode: {str(e)}")
         raise HTTPException(status_code=404, detail="Episode not found")
+
+
+@router.get(
+    "/podcasts/episodes/{episode_id}/progress",
+    response_model=PodcastProgressResponse,
+)
+async def get_podcast_episode_progress(episode_id: str):
+    """Return live generation progress computed from on-disk artifacts."""
+    try:
+        episode = await PodcastService.get_episode(episode_id)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching podcast episode for progress: {str(e)}")
+        raise HTTPException(status_code=404, detail="Episode not found")
+
+    job_status: Optional[str] = None
+    if episode.command:
+        try:
+            detail = await episode.get_job_detail()
+            job_status = detail["status"]
+        except Exception:
+            job_status = "unknown"
+    elif episode.audio_file:
+        job_status = "completed"
+
+    data = compute_episode_progress(
+        getattr(episode, "output_dir", None),
+        episode.audio_file,
+        job_status,
+    )
+    return PodcastProgressResponse(**data)
 
 
 @router.get("/podcasts/episodes/{episode_id}/audio")
