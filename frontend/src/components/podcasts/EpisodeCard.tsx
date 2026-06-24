@@ -5,8 +5,18 @@ import { formatDistanceToNow } from 'date-fns'
 import { getDateLocale } from '@/lib/utils/date-locale'
 import { InfoIcon, RefreshCcw, Trash2 } from 'lucide-react'
 
+import { useQueryClient } from '@tanstack/react-query'
+
 import { resolvePodcastAssetUrl } from '@/lib/api/podcasts'
-import { EpisodeStatus, FAILED_EPISODE_STATUSES, PodcastEpisode } from '@/lib/types/podcasts'
+import { QUERY_KEYS } from '@/lib/api/query-client'
+import { usePodcastEpisodeProgress } from '@/lib/hooks/use-podcasts'
+import {
+  ACTIVE_EPISODE_STATUSES,
+  EpisodeProgressPhase,
+  EpisodeStatus,
+  FAILED_EPISODE_STATUSES,
+  PodcastEpisode,
+} from '@/lib/types/podcasts'
 import { cn } from '@/lib/utils'
 import {
   AlertDialog,
@@ -22,6 +32,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { Progress } from '@/components/ui/progress'
 import {
   Dialog,
   DialogContent,
@@ -138,11 +149,45 @@ function extractTranscriptEntries(transcript: unknown): TranscriptEntry[] {
   return []
 }
 
+// Literal keys (not built dynamically) so the i18n unused-key test can find them.
+const PHASE_LABEL_KEY: Partial<Record<EpisodeProgressPhase, string>> = {
+  pending: 'podcasts.progressPending',
+  outline: 'podcasts.progressOutline',
+  transcript: 'podcasts.progressTranscript',
+  synthesizing: 'podcasts.progressSynthesizing',
+  combining: 'podcasts.progressCombining',
+}
+
 export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: EpisodeCardProps) {
   const { t, language } = useTranslation()
+  const queryClient = useQueryClient()
   const [audioSrc, setAudioSrc] = useState<string | undefined>()
   const [audioError, setAudioError] = useState<string | null>(null)
   const [detailsOpen, setDetailsOpen] = useState(false)
+
+  const isActive = ACTIVE_EPISODE_STATUSES.includes(
+    (episode.job_status ?? 'unknown') as EpisodeStatus
+  )
+  const { data: progress } = usePodcastEpisodeProgress(episode.id, isActive)
+
+  // When generation completes, refresh the episode list so the audio appears
+  // promptly instead of waiting for the next list poll.
+  useEffect(() => {
+    if (progress && (progress.phase === 'done' || progress.phase === 'failed')) {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.podcastEpisodes })
+    }
+  }, [progress, queryClient])
+
+  const progressPhase: EpisodeProgressPhase = progress?.phase ?? 'pending'
+  const progressLabelKey = PHASE_LABEL_KEY[progressPhase]
+  const progressLabel =
+    progressPhase === 'synthesizing'
+      ? t('podcasts.progressSynthesizing')
+          .replace('{done}', String(progress?.done ?? 0))
+          .replace('{total}', String(progress?.total ?? 0))
+      : progressLabelKey
+        ? t(progressLabelKey)
+        : ''
 
   const outlineSegments = useMemo(() => extractOutlineSegments(episode.outline), [episode.outline])
   const transcriptEntries = useMemo(() => extractTranscriptEntries(episode.transcript), [episode.transcript])
@@ -416,6 +461,16 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
             </AlertDialog>
           </div>
         </div>
+
+        {isActive ? (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>{progressLabel}</span>
+              <span className="tabular-nums">{progress?.percent ?? 0}%</span>
+            </div>
+            <Progress value={progress?.percent ?? 0} />
+          </div>
+        ) : null}
 
         {audioSrc ? (
           <audio controls preload="none" src={audioSrc} className="w-full" />

@@ -12,6 +12,7 @@ import {
   EpisodeStatusGroups,
   PodcastEpisode,
   PodcastGenerationRequest,
+  PodcastProgress,
   groupEpisodesByStatus,
   speakerUsageMap,
 } from '@/lib/types/podcasts'
@@ -86,6 +87,26 @@ export function usePodcastEpisodes(options?: { autoRefresh?: boolean }) {
     statusCounts,
     hasActiveEpisodes: active,
   }
+}
+
+const PROGRESS_POLL_INTERVAL_MS = 4_000
+
+export function usePodcastEpisodeProgress(episodeId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: QUERY_KEYS.podcastProgress(episodeId),
+    queryFn: () => podcastsApi.getEpisodeProgress(episodeId),
+    enabled,
+    refetchInterval: (current) => {
+      if (!enabled) {
+        return false
+      }
+      const data = current.state.data as PodcastProgress | undefined
+      if (data && (data.phase === 'done' || data.phase === 'failed')) {
+        return false
+      }
+      return PROGRESS_POLL_INTERVAL_MS
+    },
+  })
 }
 
 export function useRetryPodcastEpisode() {
