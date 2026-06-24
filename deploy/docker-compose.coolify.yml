@@ -6,8 +6,11 @@
 # Secret  : OPEN_NOTEBOOK_ENCRYPTION_KEY n'est PAS versionné ici ; il est fourni
 #           via les Environment Variables de l'application Coolify.
 #
-# Phase 0 : image pré-construite lfnovo/open_notebook:v1-latest (validation de la chaîne).
-#           Le build depuis le Dockerfile du repo viendra quand on modifiera le cœur (fork divergent).
+# Build depuis le Dockerfile du repo (fork divergent) : nécessaire dès qu'on
+#           modifie le cœur applicatif (code Python/frontend) — l'image upstream
+#           lfnovo/open_notebook ne contient pas nos modifications.
+#           Le service `diwan` = api (5055) + worker surreal-commands + frontend (8502),
+#           SurrealDB reste un service séparé (cf. ci-dessous). Context = racine du repo.
 
 services:
   surrealdb:
@@ -21,7 +24,9 @@ services:
     restart: unless-stopped
 
   diwan:
-    image: lfnovo/open_notebook:v1-latest
+    build:
+      context: ..
+      dockerfile: Dockerfile
     environment:
       # URL publique : Next.js (8502) proxifie /api/* vers le backend (5055) en interne.
       # Sans cette variable, le frontend auto-détecte http://host:5055 (injoignable depuis le navigateur).
