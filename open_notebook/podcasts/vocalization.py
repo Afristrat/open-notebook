@@ -23,7 +23,9 @@ into a .py corrupts the encoding on Windows.
 """
 
 import asyncio
+import json
 import re
+from pathlib import Path
 from typing import Dict, List
 
 from esperanto import AIFactory
@@ -74,15 +76,50 @@ def _strip_tashkil(text: str) -> str:
     return _ARABIC_DIACRITICS.sub("", text)
 
 
-async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
-    """LangGraph node: vocalize every line of an Arabic transcript.
+def _write_progress_snapshot(state, transcript_list) -> None:
+    """Write outline.json + transcript.json early, for progress tracking.
 
-    No-op (returns {}) for non-Arabic languages or an empty transcript.
-    If a single line fails, its original is kept (zero data loss).
+    podcast-creator only writes these at the very end of create_podcast, so the
+    total line count is unknown during the long TTS phase. We snapshot them here
+    (between transcript generation and audio) for every language. The library
+    rewrites identical files at the end -- no conflict. Best-effort only.
+    """
+    output_dir = state.get("output_dir")
+    if not output_dir:
+        return
+    try:
+        base = Path(output_dir)
+        base.mkdir(parents=True, exist_ok=True)
+        outline = state.get("outline")
+        if outline is not None and hasattr(outline, "model_dump_json"):
+            (base / "outline.json").write_text(
+                outline.model_dump_json(), encoding="utf-8"
+            )
+        (base / "transcript.json").write_text(
+            json.dumps(
+                [d.model_dump() for d in transcript_list],
+                indent=2,
+                ensure_ascii=False,
+            ),
+            encoding="utf-8",
+        )
+    except Exception as e:  # noqa: BLE001 - snapshot is best-effort (progress only)
+        logger.warning(f"[vocalize] progress snapshot failed: {e}")
+
+
+async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
+    """LangGraph node: snapshot artifacts for progress + vocalize Arabic lines.
+
+    Always writes an early outline.json/transcript.json snapshot so generation
+    progress can be computed during the TTS phase. For Arabic episodes, also
+    re-vocalizes each line individually (short text = reliable tashkil). If a
+    line fails, its original is kept (zero data loss). Returns
+    {"transcript": ...} only when the transcript was actually changed.
     """
     language = state.get("language")
     transcript = state.get("transcript") or []
     if not _is_arabic(language) or not transcript:
+        _write_progress_snapshot(state, transcript)
         return {}
 
     configurable = config.get("configurable", {}) if config else {}
@@ -93,6 +130,7 @@ async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
         logger.warning(
             "[vocalize] missing transcript provider/model -> skipping vocalization"
         )
+        _write_progress_snapshot(state, transcript)
         return {}
 
     # Same model as transcript generation, but plain-text output: drop any
@@ -144,6 +182,7 @@ async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
         for i, dlg in zip(indices, results):
             out[i] = dlg
     logger.info("[vocalize] vocalization done")
+    _write_progress_snapshot(state, out)
     return {"transcript": out}
 
 
