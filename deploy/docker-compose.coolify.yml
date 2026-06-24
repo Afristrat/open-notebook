@@ -25,7 +25,10 @@ services:
 
   diwan:
     build:
-      context: ..
+      # Coolify resolves the build context against the app Base Directory ("/",
+      # i.e. the repo root), NOT relative to this compose file in deploy/.
+      # So context "." = repo root, where the Dockerfile and source live.
+      context: .
       dockerfile: Dockerfile
     environment:
       # URL publique : Next.js (8502) proxifie /api/* vers le backend (5055) en interne.
