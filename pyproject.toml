@@ -47,7 +47,7 @@ dependencies = [
 package-dir = {"open_notebook" = "open_notebook"}
 
 [tool.setuptools.package-data]
-open_notebook = ["ai/assets/*"]
+open_notebook = ["ai/assets/*", "podcasts/*.txt"]
 
 
 [project.optional-dependencies]

@@ -46,18 +46,51 @@ _ARABIC_DIACRITICS = re.compile(
 # Arabic script range (U+0600-U+06FF), used to confirm an LLM reply is Arabic.
 _ARABIC_LETTERS = re.compile("[" + chr(0x0600) + "-" + chr(0x06FF) + "]")
 
-# Instruction kept in plain ASCII French: Opus vocalizes on command, and we
-# avoid any literal Arabic in the source (Windows encoding corruption).
-_VOCALIZE_INSTRUCTION = (
-    "Tu es un expert de l'arabe standard moderne (MSA, fus-ha). "
-    "On te donne UNE replique de dialogue en arabe. "
-    "Renvoie EXACTEMENT le meme texte, mot pour mot, mais ENTIEREMENT vocalise "
-    "(tachkil complet): place toutes les voyelles breves (fatha, damma, kasra), "
-    "le soukoun, la chadda et le tanwin sur CHAQUE mot, selon la grammaire "
-    "correcte. Regles strictes: ne change aucun mot, n'ajoute ni ne retire "
-    "rien, ne traduis pas, ne mets ni guillemets ni note ni explication. "
-    "Reponds uniquement par le texte arabe vocalise."
-)
+# Prompts experts de diacritisation (pipeline 2 passes) charges depuis des
+# fichiers UTF-8 voisins : aucun arabe litteral dans ce .py (corruption
+# d'encodage sous Windows). Passe 1 = vocalisation experte (analyse i'rab),
+# passe 2 = relecture grammaticale critique qui corrige les fautes de la passe 1.
+_PROMPT_DIR = Path(__file__).parent
+
+
+def _load_prompt(name: str) -> str:
+    try:
+        return (_PROMPT_DIR / name).read_text(encoding="utf-8").strip()
+    except Exception as e:  # noqa: BLE001 - absence non bloquante (degrade)
+        logger.error(f"[vocalize] prompt {name} introuvable: {e}")
+        return ""
+
+
+_SYSTEM_VOCALIZE = _load_prompt("tashkil_system1.txt")
+_SYSTEM_REVIEW = _load_prompt("tashkil_system2.txt")
+
+# Lexique de prononciation : noms propres ou le kaf doit se prononcer "g".
+# Ex. Agadir : ...كادير -> ...گادير (gaf U+06AF). Construit en \u (pas d'arabe
+# litteral). Applique au texte NU avant vocalisation ; le prompt preserve
+# ensuite les lettres exactes.
+_PRON_FIXES = [
+    # kaf-alif-dal-ya-ra  ->  gaf-alif-dal-ya-ra  (Agadir)
+    (
+        chr(0x0643) + chr(0x0627) + chr(0x062F) + chr(0x064A) + chr(0x0631),
+        chr(0x06AF) + chr(0x0627) + chr(0x062F) + chr(0x064A) + chr(0x0631),
+    ),
+]
+
+
+def _apply_pron_fixes(text: str) -> str:
+    for src, dst in _PRON_FIXES:
+        text = text.replace(src, dst)
+    return text
+
+
+# Extrait le contenu de <tachkil>...</tachkil> (sinon tout le texte renvoye).
+_TASHKIL_TAG = re.compile(r"<tachkil>(.*?)</tachkil>", re.S | re.I)
+
+
+def _extract_tashkil(text: str) -> str:
+    m = _TASHKIL_TAG.search(text or "")
+    return (m.group(1).strip() if m else (text or "").strip())
+
 
 # Number of lines vocalized in parallel (concurrent LLM calls).
 _VOCALIZE_BATCH_SIZE = 5
@@ -133,10 +166,11 @@ async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
         _write_progress_snapshot(state, transcript)
         return {}
 
-    # Same model as transcript generation, but plain-text output: drop any
-    # JSON-structuring constraint.
+    # Sortie longue (analyse i'rab + texte vocalise sur 2 passes) : large marge
+    # de tokens pour ne JAMAIS tronquer (le piege LengthFinishReasonError vient
+    # d'un max_tokens trop bas face au tachkil qui ~double le nombre de tokens).
     extra.pop("structured", None)
-    merged_config = {"max_tokens": 2000, **extra}
+    merged_config = {"max_tokens": 8000, **extra}
     llm = AIFactory.create_language(
         provider, model, config=merged_config
     ).to_langchain()
@@ -148,21 +182,41 @@ async def vocalize_transcript_node(state, config: RunnableConfig) -> Dict:
         extract_text_content,
     )
 
+    if not _SYSTEM_VOCALIZE:
+        logger.warning(
+            "[vocalize] prompt expert manquant -> snapshot sans vocalisation"
+        )
+        _write_progress_snapshot(state, transcript)
+        return {}
+
+    async def _ask(prompt: str) -> str:
+        result = await llm.ainvoke(prompt)
+        return clean_thinking_content(extract_text_content(result.content)).strip()
+
     async def _vocalize_one(idx: int, dlg) -> "Dialogue":
-        raw = _strip_tashkil(dlg.dialogue).strip()
+        # Texte nu + corrections de prononciation deterministes (noms propres).
+        raw = _apply_pron_fixes(_strip_tashkil(dlg.dialogue).strip())
         if not raw:
             return dlg
-        prompt = f"{_VOCALIZE_INSTRUCTION}\n\nReplique:\n{raw}"
         try:
-            result = await llm.ainvoke(prompt)
-            text = clean_thinking_content(
-                extract_text_content(result.content)
-            ).strip()
-            if text and _ARABIC_LETTERS.search(text):
-                return Dialogue(speaker=dlg.speaker, dialogue=text)
-            logger.warning(
-                f"[vocalize] line {idx}: empty/non-Arabic reply, keeping original"
-            )
+            # Passe 1 : vocalisation experte (analyse i'rab interne).
+            p1 = f"{_SYSTEM_VOCALIZE}\n\nReplique a vocaliser :\n{raw}"
+            voc1 = _extract_tashkil(await _ask(p1))
+            if not (voc1 and _ARABIC_LETTERS.search(voc1)):
+                logger.warning(
+                    f"[vocalize] line {idx}: passe 1 vide/non-arabe, original garde"
+                )
+                return dlg
+            # Passe 2 : relecture grammaticale critique (corrige i'rab/morphologie).
+            if _SYSTEM_REVIEW:
+                p2 = (
+                    f"{_SYSTEM_REVIEW}\n\n(A) Texte original :\n{raw}\n\n"
+                    f"(B) Vocalisation proposee :\n{voc1}"
+                )
+                voc2 = _extract_tashkil(await _ask(p2))
+                if voc2 and _ARABIC_LETTERS.search(voc2):
+                    return Dialogue(speaker=dlg.speaker, dialogue=voc2)
+            return Dialogue(speaker=dlg.speaker, dialogue=voc1)
         except Exception as e:  # noqa: BLE001 - degrade without losing the line
             logger.warning(f"[vocalize] line {idx} failed: {e}; keeping original")
         return dlg
