@@ -1,0 +1,6 @@
+-- Migration 18: backfill show_explicit on pre-existing episode_profile rows.
+-- Migration 17 added show_explicit (strict TYPE bool DEFAULT false) but did not
+-- backfill rows created before it. On a SCHEMAFULL table, a strict bool field
+-- with no value raises "Found NONE ... expected a bool" on the next read/update.
+-- Initialise existing rows to false. Idempotent (no-op once applied).
+UPDATE episode_profile SET show_explicit = false WHERE show_explicit = NONE;
