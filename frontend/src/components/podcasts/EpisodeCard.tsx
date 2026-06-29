@@ -3,13 +3,17 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { getDateLocale } from '@/lib/utils/date-locale'
-import { InfoIcon, RefreshCcw, Trash2 } from 'lucide-react'
+import { Globe, InfoIcon, Loader2, RefreshCcw, Trash2 } from 'lucide-react'
 
 import { useQueryClient } from '@tanstack/react-query'
 
 import { resolvePodcastAssetUrl } from '@/lib/api/podcasts'
 import { QUERY_KEYS } from '@/lib/api/query-client'
-import { usePodcastEpisodeProgress } from '@/lib/hooks/use-podcasts'
+import {
+  usePodcastEpisodeProgress,
+  usePublishEpisode,
+  useUnpublishEpisode,
+} from '@/lib/hooks/use-podcasts'
 import {
   ACTIVE_EPISODE_STATUSES,
   EpisodeProgressPhase,
@@ -43,6 +47,11 @@ import {
 } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/hooks/use-translation'
 import type { TFunction } from 'i18next'
 
@@ -170,6 +179,21 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
   )
   const { data: progress } = usePodcastEpisodeProgress(episode.id, isActive)
 
+  const publishEpisode = usePublishEpisode()
+  const unpublishEpisode = useUnpublishEpisode()
+
+  const hasAudio = Boolean(episode.audio_url || episode.audio_file)
+  const isPublished = episode.published
+  const isPublishing = publishEpisode.isPending || unpublishEpisode.isPending
+
+  const handleTogglePublish = () => {
+    if (isPublished) {
+      unpublishEpisode.mutate(episode.id)
+    } else {
+      publishEpisode.mutate({ episodeId: episode.id })
+    }
+  }
+
   // When generation completes, refresh the episode list so the audio appears
   // promptly instead of waiting for the next list poll.
   useEffect(() => {
@@ -282,6 +306,17 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
                 {episode.name}
               </h3>
               <StatusBadge status={episode.job_status} />
+              <Badge
+                variant="outline"
+                className={cn(
+                  'uppercase tracking-wide text-xs',
+                  isPublished
+                    ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                    : 'bg-muted text-muted-foreground border-transparent'
+                )}
+              >
+                {isPublished ? t('podcasts.publishedBadge') : t('podcasts.draftBadge')}
+              </Badge>
             </div>
             <p className="text-xs text-muted-foreground">
               {t('podcasts.profile')}: {episode.episode_profile?.name || t('common.unknown')}
@@ -437,6 +472,28 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
                 {retrying ? t('podcasts.retrying') : t('podcasts.retry')}
               </Button>
             ) : null}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="inline-flex">
+                  <Button
+                    variant={isPublished ? 'outline' : 'default'}
+                    size="sm"
+                    onClick={handleTogglePublish}
+                    disabled={!hasAudio || isPublishing}
+                  >
+                    {isPublishing ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Globe className="mr-2 h-4 w-4" />
+                    )}
+                    {isPublished ? t('podcasts.unpublish') : t('podcasts.publish')}
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {!hasAudio ? (
+                <TooltipContent>{t('podcasts.publishNeedsAudio')}</TooltipContent>
+              ) : null}
+            </Tooltip>
             <AlertDialog>
               <AlertDialogTrigger asChild>
                 <Button variant="ghost" size="sm" className="text-destructive">

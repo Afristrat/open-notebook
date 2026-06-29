@@ -18,3 +18,13 @@ os.makedirs(UPLOADS_FOLDER, exist_ok=True)
 # pre-baked encoding baked into the image at build time).
 TIKTOKEN_CACHE_DIR = os.environ.get("TIKTOKEN_CACHE_DIR", "").strip() or f"{DATA_FOLDER}/tiktoken-cache"
 os.makedirs(TIKTOKEN_CACHE_DIR, exist_ok=True)
+
+# PUBLIC BASE URL
+# Absolute, externally-reachable origin of this instance (no trailing slash).
+# Used to build absolute URLs in podcast RSS feeds (enclosures, cover art, links)
+# so podcast directories (Apple, Spotify) can fetch the audio. Falls back to the
+# production domain when unset.
+PUBLIC_BASE_URL = (
+    os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
+    or "https://diwan.ai-mpower.com"
+)
