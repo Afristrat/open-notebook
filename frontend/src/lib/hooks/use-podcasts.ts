@@ -13,6 +13,7 @@ import {
   PodcastEpisode,
   PodcastGenerationRequest,
   PodcastProgress,
+  PublishEpisodeRequest,
   groupEpisodesByStatus,
   speakerUsageMap,
 } from '@/lib/types/podcasts'
@@ -131,6 +132,74 @@ export function useRetryPodcastEpisode() {
       })
     },
   })
+}
+
+export function usePublishEpisode() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: ({
+      episodeId,
+      body,
+    }: {
+      episodeId: string
+      body?: PublishEpisodeRequest
+    }) => podcastsApi.publishEpisode(episodeId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.podcastEpisodes })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.podcastFeeds })
+      toast({
+        title: t('podcasts.episodePublished'),
+        description: t('podcasts.episodePublishedDesc'),
+      })
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: t('podcasts.failedToPublish'),
+        description: getApiErrorKey(error, t('common.error')),
+        variant: 'destructive',
+      })
+    },
+  })
+}
+
+export function useUnpublishEpisode() {
+  const queryClient = useQueryClient()
+  const { toast } = useToast()
+  const { t } = useTranslation()
+
+  return useMutation({
+    mutationFn: (episodeId: string) => podcastsApi.unpublishEpisode(episodeId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.podcastEpisodes })
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.podcastFeeds })
+      toast({
+        title: t('podcasts.episodeUnpublished'),
+        description: t('podcasts.episodeUnpublishedDesc'),
+      })
+    },
+    onError: (error: unknown) => {
+      toast({
+        title: t('podcasts.failedToUnpublish'),
+        description: getApiErrorKey(error, t('common.error')),
+        variant: 'destructive',
+      })
+    },
+  })
+}
+
+export function usePodcastFeeds() {
+  const query = useQuery({
+    queryKey: QUERY_KEYS.podcastFeeds,
+    queryFn: podcastsApi.listPodcastFeeds,
+  })
+
+  return {
+    ...query,
+    feeds: query.data ?? [],
+  }
 }
 
 export function useDeletePodcastEpisode() {

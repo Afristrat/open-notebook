@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, ClassVar, Dict, List, Optional, Tuple, Union
 
 from loguru import logger
@@ -45,6 +46,9 @@ class EpisodeProfile(ObjectModel):
         "outline_llm",
         "transcript_llm",
         "language",
+        "show_image",
+        "show_author",
+        "show_category",
     }
 
     name: str = Field(..., description="Unique profile name")
@@ -78,6 +82,19 @@ class EpisodeProfile(ObjectModel):
 
     default_briefing: str = Field(..., description="Default briefing template")
     num_segments: int = Field(default=5, description="Number of podcast segments")
+
+    # Show-level metadata for podcast distribution (RSS / Apple / Spotify).
+    # The episode profile IS the "show": one feed per profile.
+    show_image: Optional[str] = Field(
+        None, description="Cover art URL for the show (required by podcast directories)"
+    )
+    show_author: Optional[str] = Field(None, description="Show author / publisher name")
+    show_category: Optional[str] = Field(
+        None, description="Apple Podcasts category for the show"
+    )
+    show_explicit: bool = Field(
+        default=False, description="Whether the show is marked explicit"
+    )
 
     @field_validator("num_segments")
     @classmethod
@@ -235,7 +252,28 @@ class PodcastEpisode(ObjectModel):
         ),
     )
 
+    # Distribution (RSS feeds): an episode only appears in a feed once published.
+    published: bool = Field(
+        default=False, description="Whether the episode is published to its feed"
+    )
+    published_at: Optional[datetime] = Field(
+        default=None, description="UTC timestamp when the episode was published"
+    )
+    description: Optional[str] = Field(
+        default=None, description="Public-facing episode description (feed item summary)"
+    )
+    image_url: Optional[str] = Field(
+        default=None, description="Optional per-episode cover art URL"
+    )
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @field_validator("published_at", mode="before")
+    @classmethod
+    def parse_published_at(cls, value):
+        if value and isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return value
 
     async def get_job_status(self) -> Optional[str]:
         """Get the status of the associated command"""

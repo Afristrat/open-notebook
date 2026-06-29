@@ -1,0 +1,9 @@
+-- Migration 17 rollback: remove podcast distribution fields
+REMOVE FIELD IF EXISTS published ON TABLE episode;
+REMOVE FIELD IF EXISTS published_at ON TABLE episode;
+REMOVE FIELD IF EXISTS description ON TABLE episode;
+REMOVE FIELD IF EXISTS image_url ON TABLE episode;
+REMOVE FIELD IF EXISTS show_image ON TABLE episode_profile;
+REMOVE FIELD IF EXISTS show_author ON TABLE episode_profile;
+REMOVE FIELD IF EXISTS show_category ON TABLE episode_profile;
+REMOVE FIELD IF EXISTS show_explicit ON TABLE episode_profile;

@@ -2,6 +2,10 @@ import apiClient from './client'
 import { getApiUrl } from '@/lib/config'
 import {
   PodcastEpisode,
+  PodcastFeed,
+  PublishEpisodeRequest,
+  PublishEpisodeResponse,
+  UnpublishEpisodeResponse,
   EpisodeProfile,
   SpeakerProfile,
   Language,
@@ -52,6 +56,26 @@ export const podcastsApi = {
     const response = await apiClient.get<PodcastProgress>(
       `/podcasts/episodes/${episodeId}/progress`
     )
+    return response.data
+  },
+
+  publishEpisode: async (episodeId: string, body?: PublishEpisodeRequest) => {
+    const response = await apiClient.post<PublishEpisodeResponse>(
+      `/podcasts/episodes/${episodeId}/publish`,
+      body ?? {}
+    )
+    return response.data
+  },
+
+  unpublishEpisode: async (episodeId: string) => {
+    const response = await apiClient.post<UnpublishEpisodeResponse>(
+      `/podcasts/episodes/${episodeId}/unpublish`
+    )
+    return response.data
+  },
+
+  listPodcastFeeds: async () => {
+    const response = await apiClient.get<PodcastFeed[]>('/podcasts/feeds')
     return response.data
   },
 
