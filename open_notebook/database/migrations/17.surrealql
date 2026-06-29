@@ -1,0 +1,18 @@
+-- Migration 17: Podcast distribution (RSS feeds)
+-- Adds episode-level publication state + public metadata, and show-level
+-- (episode_profile) metadata required to emit a valid Apple/Spotify RSS feed.
+
+-- EPISODE: publication state + public-facing metadata
+DEFINE FIELD IF NOT EXISTS published ON TABLE episode TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS published_at ON TABLE episode TYPE option<datetime>;
+DEFINE FIELD IF NOT EXISTS description ON TABLE episode TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS image_url ON TABLE episode TYPE option<string>;
+
+-- Backfill existing episodes so feed queries (WHERE published = true) are exact.
+UPDATE episode SET published = false WHERE published = NONE;
+
+-- EPISODE PROFILE = the show: metadata required by podcast directories
+DEFINE FIELD IF NOT EXISTS show_image ON TABLE episode_profile TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS show_author ON TABLE episode_profile TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS show_category ON TABLE episode_profile TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS show_explicit ON TABLE episode_profile TYPE bool DEFAULT false;

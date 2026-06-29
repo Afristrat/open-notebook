@@ -3,10 +3,11 @@ from typing import List, Optional
 from urllib.parse import unquote, urlparse
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
 
+from api import feed_service
 from api.podcast_service import (
     PodcastGenerationRequest,
     PodcastGenerationResponse,
@@ -30,6 +31,10 @@ class PodcastEpisodeResponse(BaseModel):
     created: Optional[str] = None
     job_status: Optional[str] = None
     error_message: Optional[str] = None
+    published: bool = False
+    published_at: Optional[str] = None
+    description: Optional[str] = None
+    image_url: Optional[str] = None
 
 
 class PodcastProgressResponse(BaseModel):
@@ -138,6 +143,12 @@ async def list_podcast_episodes():
                     created=str(episode.created) if episode.created else None,
                     job_status=job_status,
                     error_message=error_message,
+                    published=bool(getattr(episode, "published", False)),
+                    published_at=(
+                        str(episode.published_at) if episode.published_at else None
+                    ),
+                    description=episode.description,
+                    image_url=episode.image_url,
                 )
             )
 
@@ -189,6 +200,12 @@ async def get_podcast_episode(episode_id: str):
             created=str(episode.created) if episode.created else None,
             job_status=job_status,
             error_message=error_message,
+            published=bool(getattr(episode, "published", False)),
+            published_at=(
+                str(episode.published_at) if episode.published_at else None
+            ),
+            description=episode.description,
+            image_url=episode.image_url,
         )
 
     except Exception as e:
@@ -338,3 +355,70 @@ async def delete_podcast_episode(episode_id: str):
         raise HTTPException(
             status_code=500, detail="Failed to delete episode"
         )
+
+
+# --- Distribution: publication + RSS feeds ----------------------------------
+
+
+class PublishRequest(BaseModel):
+    description: Optional[str] = None
+    image_url: Optional[str] = None
+
+
+@router.post("/podcasts/episodes/{episode_id}/publish")
+async def publish_podcast_episode(
+    episode_id: str, request: Optional[PublishRequest] = None
+):
+    """Publish an episode so it appears in its series' RSS feed."""
+    episode = await PodcastService.get_episode(episode_id)
+    if not episode.audio_file:
+        raise HTTPException(
+            status_code=409, detail="Cannot publish an episode without audio"
+        )
+    try:
+        req = request or PublishRequest()
+        updated = await feed_service.set_published(
+            episode_id, True, req.description, req.image_url
+        )
+        return {
+            "episode_id": episode_id,
+            "published": True,
+            "published_at": str(updated.get("published_at")),
+        }
+    except Exception as e:
+        logger.error(f"Error publishing episode {episode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to publish episode")
+
+
+@router.post("/podcasts/episodes/{episode_id}/unpublish")
+async def unpublish_podcast_episode(episode_id: str):
+    """Remove an episode from its series' RSS feed."""
+    try:
+        await feed_service.set_published(episode_id, False)
+        return {"episode_id": episode_id, "published": False}
+    except Exception as e:
+        logger.error(f"Error unpublishing episode {episode_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to unpublish episode")
+
+
+@router.get("/podcasts/feeds")
+async def list_podcast_feeds():
+    """List shows (series) and their feed URLs / readiness for submission."""
+    try:
+        return await feed_service.list_series()
+    except Exception as e:
+        logger.error(f"Error listing podcast feeds: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list feeds")
+
+
+@router.get("/podcasts/feed/{slug}.xml")
+async def get_podcast_feed(slug: str):
+    """Serve the RSS 2.0 (+iTunes) feed for a series."""
+    try:
+        xml = await feed_service.build_feed(slug)
+    except Exception as e:
+        logger.error(f"Error building feed {slug}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to build feed")
+    if xml is None:
+        raise HTTPException(status_code=404, detail="Feed not found")
+    return Response(content=xml, media_type="application/rss+xml; charset=utf-8")

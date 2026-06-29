@@ -62,6 +62,40 @@ export interface PodcastEpisode {
   created?: string | null
   job_status?: EpisodeStatus | null
   error_message?: string | null
+  published: boolean
+  published_at: string | null
+  description: string | null
+  image_url: string | null
+}
+
+export interface PodcastFeed {
+  slug: string
+  name: string
+  description: string
+  image: string | null
+  author: string
+  category: string
+  language: string
+  explicit: boolean
+  episode_count: number
+  feed_url: string
+  ready: boolean
+}
+
+export interface PublishEpisodeRequest {
+  description?: string
+  image_url?: string
+}
+
+export interface PublishEpisodeResponse {
+  episode_id: string
+  published: boolean
+  published_at: string
+}
+
+export interface UnpublishEpisodeResponse {
+  episode_id: string
+  published: boolean
 }
 
 export type EpisodeProgressPhase =
