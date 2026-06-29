@@ -1,0 +1,3 @@
+-- Migration 18 rollback: data backfill cannot be meaningfully reverted
+-- (the field itself is removed by 17_down). No-op.
+RETURN true;
