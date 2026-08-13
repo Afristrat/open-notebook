@@ -48,7 +48,12 @@ async def _language_model(prompt: str):
     from open_notebook.ai.provision import provision_langchain_model
 
     try:
-        return await provision_langchain_model(prompt, None, "transformation")
+        # max_tokens explicite: le defaut du modele configure (850) tronque la
+        # sortie structuree, ce qui produit un JSON invalide et donc une analyse
+        # rendue en insufficient_evidence alors que les preuves existent.
+        return await provision_langchain_model(
+            prompt, None, "transformation", max_tokens=4000
+        )
     except Exception as exc:
         logger.error(f"[consumers] modele de langue indisponible: {exc}")
         raise ConsumerAPIError(
