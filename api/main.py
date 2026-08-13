@@ -27,6 +27,7 @@ from api.routers import (
     capabilities,
     chat,
     config,
+    consumers_qalem,
     credentials,
     embedding,
     embedding_rebuild,
@@ -46,6 +47,7 @@ from api.routers import (
     transformations,
 )
 from api.routers import commands as commands_router
+from open_notebook.consumers.errors import ConsumerAPIError, consumer_error_response
 from open_notebook.database.async_migrate import AsyncMigrationManager
 from open_notebook.exceptions import (
     AuthenticationError,
@@ -296,6 +298,20 @@ async def custom_http_exception_handler(request: Request, exc: StarletteHTTPExce
     )
 
 
+@app.exception_handler(ConsumerAPIError)
+async def consumer_api_error_handler(request: Request, exc: ConsumerAPIError):
+    """Rend les erreurs de la facade consommateur dans leur enveloppe stable.
+
+    Enregistre pour le type exact: Starlette resout les gestionnaires en
+    remontant la hierarchie de classes, donc celui-ci gagne sur le gestionnaire
+    generique de StarletteHTTPException dont ConsumerAPIError herite.
+    """
+    response = consumer_error_response(request, exc)
+    for key, value in _cors_headers(request).items():
+        response.headers.setdefault(key, value)
+    return response
+
+
 @app.exception_handler(NotFoundError)
 async def not_found_error_handler(request: Request, exc: NotFoundError):
     return JSONResponse(
@@ -404,6 +420,7 @@ app.include_router(credentials.router, prefix="/api", tags=["credentials"])
 app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
+app.include_router(consumers_qalem.router, prefix="/api", tags=["consumers-qalem"])
 
 
 @app.get("/")
