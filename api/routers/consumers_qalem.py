@@ -358,10 +358,13 @@ async def get_ingestion(
         )
     job = jobs[0]
 
+    # SurrealDB exige que le champ du ORDER BY figure dans la projection:
+    # sans `created` selectionne, la requete echoue avec "Missing order idiom".
     items = await repo_query(
         """
         SELECT
             id,
+            created,
             status,
             error_code,
             error_message,
