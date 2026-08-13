@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { EpisodeCard } from './EpisodeCard'
 import type { PodcastEpisode } from '@/lib/types/podcasts'
@@ -39,7 +40,14 @@ function makeEpisode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {
 }
 
 function renderAndOpenDetails(episode: PodcastEpisode) {
-  render(<EpisodeCard episode={episode} onDelete={vi.fn()} />)
+  // The card reads live generation progress and drives publish/unpublish
+  // through React Query, so it only mounts under a client provider.
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <EpisodeCard episode={episode} onDelete={vi.fn()} />
+    </QueryClientProvider>
+  )
   fireEvent.click(screen.getByText('podcasts.details'))
 }
 
