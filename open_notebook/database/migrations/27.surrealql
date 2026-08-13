@@ -1,0 +1,149 @@
+-- Migration 27: modele d'isolation documentaire pour les consommateurs externes.
+--
+-- Chaine de portee: consumer -> external_organization -> corpus -> source_version
+-- -> source_embedding. Une source physique peut etre referencee par plusieurs
+-- corpus via corpus_source, sans duplication du fichier ni des blocs.
+--
+-- Rien ici ne modifie le comportement existant de Diwan: les champs ajoutes a
+-- source_embedding sont tous optionnels, donc les 105 blocs deja indexes
+-- restent valides et la recherche historique fn::vector_search est intacte.
+--
+-- ATTENTION: le runner (AsyncMigration.from_file) retire les lignes qui
+-- COMMENCENT par -- puis joint tout le reste sur une seule ligne. Un commentaire
+-- en fin de ligne commenterait donc toute la suite du fichier. Aucun commentaire
+-- de fin de ligne dans ce fichier.
+
+DEFINE TABLE IF NOT EXISTS consumer SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS name ON TABLE consumer TYPE string;
+DEFINE FIELD IF NOT EXISTS active ON TABLE consumer TYPE bool DEFAULT true;
+DEFINE FIELD IF NOT EXISTS created ON TABLE consumer TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE consumer TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_consumer_name ON TABLE consumer COLUMNS name UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS external_organization SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS consumer ON TABLE external_organization TYPE record<consumer>;
+DEFINE FIELD IF NOT EXISTS external_id ON TABLE external_organization TYPE string;
+DEFINE FIELD IF NOT EXISTS name ON TABLE external_organization TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS revoked ON TABLE external_organization TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created ON TABLE external_organization TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE external_organization TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_external_org_scope ON TABLE external_organization COLUMNS consumer, external_id UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS corpus SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE corpus TYPE record<external_organization>;
+DEFINE FIELD IF NOT EXISTS name ON TABLE corpus TYPE string;
+DEFINE FIELD IF NOT EXISTS revoked ON TABLE corpus TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created ON TABLE corpus TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE corpus TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_corpus_organization ON TABLE corpus FIELDS organization;
+
+DEFINE TABLE IF NOT EXISTS source_version SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS source ON TABLE source_version TYPE record<source>;
+DEFINE FIELD IF NOT EXISTS version ON TABLE source_version TYPE int DEFAULT 1;
+DEFINE FIELD IF NOT EXISTS checksum_sha256 ON TABLE source_version TYPE string;
+DEFINE FIELD IF NOT EXISTS title ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS original_name ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS media_type ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_type ON TABLE source_version TYPE string;
+DEFINE FIELD IF NOT EXISTS storage_path ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS parser_name ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS parser_version ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS ocr_used ON TABLE source_version TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS embedding_model ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS embedding_model_version ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS embedding_dimensions ON TABLE source_version TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS pages ON TABLE source_version TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS chunks ON TABLE source_version TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS status ON TABLE source_version TYPE string DEFAULT 'queued';
+DEFINE FIELD IF NOT EXISTS error_code ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS error_message ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created ON TABLE source_version TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE source_version TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_source_version_source ON TABLE source_version FIELDS source;
+DEFINE INDEX IF NOT EXISTS idx_source_version_checksum ON TABLE source_version FIELDS checksum_sha256;
+
+DEFINE TABLE IF NOT EXISTS corpus_source SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS corpus ON TABLE corpus_source TYPE record<corpus>;
+DEFINE FIELD IF NOT EXISTS source_version ON TABLE corpus_source TYPE record<source_version>;
+DEFINE FIELD IF NOT EXISTS rights ON TABLE corpus_source TYPE array<string> DEFAULT ['read'];
+DEFINE FIELD IF NOT EXISTS revoked ON TABLE corpus_source TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created ON TABLE corpus_source TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE corpus_source TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_corpus_source_pair ON TABLE corpus_source COLUMNS corpus, source_version UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS ingestion_job SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS consumer ON TABLE ingestion_job TYPE record<consumer>;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE ingestion_job TYPE record<external_organization>;
+DEFINE FIELD IF NOT EXISTS corpus ON TABLE ingestion_job TYPE record<corpus>;
+DEFINE FIELD IF NOT EXISTS idempotency_key ON TABLE ingestion_job TYPE string;
+DEFINE FIELD IF NOT EXISTS status ON TABLE ingestion_job TYPE string DEFAULT 'queued';
+DEFINE FIELD IF NOT EXISTS submitted_sources ON TABLE ingestion_job TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS request_id ON TABLE ingestion_job TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created ON TABLE ingestion_job TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE ingestion_job TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_ingestion_job_idempotency ON TABLE ingestion_job COLUMNS organization, idempotency_key UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS ingestion_item SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS job ON TABLE ingestion_item TYPE record<ingestion_job>;
+DEFINE FIELD IF NOT EXISTS source_version ON TABLE ingestion_item TYPE option<record<source_version>>;
+DEFINE FIELD IF NOT EXISTS original_name ON TABLE ingestion_item TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS source_type ON TABLE ingestion_item TYPE string;
+DEFINE FIELD IF NOT EXISTS payload_ref ON TABLE ingestion_item TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS status ON TABLE ingestion_item TYPE string DEFAULT 'queued';
+DEFINE FIELD IF NOT EXISTS error_code ON TABLE ingestion_item TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS error_message ON TABLE ingestion_item TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS created ON TABLE ingestion_item TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE ingestion_item TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_ingestion_item_job ON TABLE ingestion_item FIELDS job;
+
+DEFINE FIELD IF NOT EXISTS source_version ON TABLE source_embedding TYPE option<record<source_version>>;
+DEFINE FIELD IF NOT EXISTS page_number ON TABLE source_embedding TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS section_title ON TABLE source_embedding TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS start_offset ON TABLE source_embedding TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS end_offset ON TABLE source_embedding TYPE option<int>;
+DEFINE FIELD IF NOT EXISTS content_hash ON TABLE source_embedding TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS embedding_model_version ON TABLE source_embedding TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS embedding_dimensions ON TABLE source_embedding TYPE option<int>;
+DEFINE INDEX IF NOT EXISTS idx_source_embedding_version ON TABLE source_embedding FIELDS source_version;
+
+DEFINE FUNCTION IF NOT EXISTS fn::scoped_vector_search($query: array<float>, $version_ids: array<record<source_version>>, $match_count: int, $min_similarity: float) {
+    RETURN (
+        SELECT
+            id,
+            source,
+            source_version,
+            content,
+            content_hash,
+            page_number,
+            section_title,
+            order,
+            vector::similarity::cosine(embedding, $query) AS similarity
+        FROM source_embedding
+        WHERE source_version IN $version_ids
+            AND embedding != NONE
+            AND array::len(embedding) = array::len($query)
+            AND vector::similarity::cosine(embedding, $query) >= $min_similarity
+        ORDER BY similarity DESC
+        LIMIT $match_count
+    );
+};
+
+DEFINE FUNCTION IF NOT EXISTS fn::scoped_text_search($query_text: string, $version_ids: array<record<source_version>>, $match_count: int) {
+    RETURN (
+        SELECT
+            id,
+            source,
+            source_version,
+            content,
+            content_hash,
+            page_number,
+            section_title,
+            order,
+            search::score(1) AS similarity
+        FROM source_embedding
+        WHERE source_version IN $version_ids
+            AND content @1@ $query_text
+        ORDER BY similarity DESC
+        LIMIT $match_count
+    );
+};
