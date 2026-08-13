@@ -279,8 +279,10 @@ async def find_existing_version(
         """
         SELECT source_version.* FROM corpus_source
         WHERE revoked = false
-            AND corpus.organization = $organization
-            AND corpus.revoked = false
+            AND corpus IN (
+                SELECT VALUE id FROM corpus
+                WHERE organization = $organization AND revoked = false
+            )
             AND source_version.checksum_sha256 = $checksum
             AND source_version.status = 'ready'
         LIMIT 1
