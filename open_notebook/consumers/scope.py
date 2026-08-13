@@ -140,7 +140,7 @@ async def authorized_versions(
     }
     corpus_clause = ""
     if corpus_id:
-        corpus_clause = "AND corpus.id = $corpus"
+        corpus_clause = "AND corpus = $corpus"
         params["corpus"] = ensure_record_id(corpus_id)
 
     rows = await repo_query(
@@ -166,8 +166,10 @@ async def authorized_versions(
         FROM corpus_source
         WHERE revoked = false
             {corpus_clause}
-            AND corpus.organization = $organization
-            AND corpus.revoked = false
+            AND corpus IN (
+                SELECT VALUE id FROM corpus
+                WHERE organization = $organization AND revoked = false
+            )
             AND source_version.source IN $sources
         """,
         params,
@@ -197,14 +199,18 @@ async def list_corpus_sources(
     Ne retourne jamais le texte integral: seules les metadonnees de provenance
     circulent sur cette route.
     """
+    # Le filtre d'organisation passe par une sous-requete sur les corpus:
+    # SurrealDB ne dereference pas un lien (corpus.organization) dans une clause
+    # WHERE, il le fait seulement en projection. Ecrite en traversee, la clause
+    # ne remontait donc AUCUNE ligne, ce qui donnait une bibliotheque vide.
     params: Dict[str, Any] = {"organization": ensure_record_id(organization_id)}
     clauses = [
         "revoked = false",
-        "corpus.organization = $organization",
-        "corpus.revoked = false",
+        "corpus IN (SELECT VALUE id FROM corpus "
+        "WHERE organization = $organization AND revoked = false)",
     ]
     if corpus_id:
-        clauses.append("corpus.id = $corpus")
+        clauses.append("corpus = $corpus")
         params["corpus"] = ensure_record_id(corpus_id)
     if status:
         clauses.append("source_version.status = $status")
@@ -224,7 +230,11 @@ async def list_corpus_sources(
     total_rows = await repo_query(
         f"SELECT VALUE count() FROM corpus_source WHERE {where} GROUP ALL", params
     )
-    total = total_rows[0] if total_rows else 0
+    # Selon la version du moteur, un count() agrege revient soit en scalaire,
+    # soit dans un objet {"count": n}. Les deux formes sont acceptees.
+    total: Any = total_rows[0] if total_rows else 0
+    if isinstance(total, dict):
+        total = total.get("count", 0)
 
     params["limit"] = max(1, min(page_size, 100))
     params["start"] = max(0, (max(1, page) - 1) * params["limit"])
