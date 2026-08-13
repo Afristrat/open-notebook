@@ -143,9 +143,14 @@ async def _refresh_job_status(item_id: str) -> None:
     )
     if not rows:
         return
-    job_ref = rows[0].get("job")
-    if job_ref is None:
+    raw_job = rows[0].get("job")
+    if raw_job is None:
         return
+    # repo_query rend les references sous forme de chaines (parse_record_ids):
+    # les repasser telles quelles a un UPDATE ne cible aucun enregistrement, et
+    # SurrealDB ne signale rien. D'ou un job fige sur "queued" alors que ses
+    # items progressaient. Toute reference relue doit etre reconvertie.
+    job_ref = ensure_record_id(str(raw_job))
 
     items = await repo_query(
         "SELECT VALUE status FROM ingestion_item WHERE job = $job", {"job": job_ref}
