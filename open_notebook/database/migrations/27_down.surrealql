@@ -1,0 +1,27 @@
+-- Annulation de la migration 27.
+--
+-- Les tables du modele d'isolation sont supprimees. Les champs ajoutes a
+-- source_embedding le sont aussi: ils sont optionnels et ne portent que la
+-- provenance des blocs produits par la facade consommateur, jamais les blocs
+-- historiques de Diwan.
+
+REMOVE FUNCTION IF EXISTS fn::scoped_text_search;
+REMOVE FUNCTION IF EXISTS fn::scoped_vector_search;
+
+REMOVE INDEX IF EXISTS idx_source_embedding_version ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS embedding_dimensions ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS embedding_model_version ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS content_hash ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS end_offset ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS start_offset ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS section_title ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS page_number ON TABLE source_embedding;
+REMOVE FIELD IF EXISTS source_version ON TABLE source_embedding;
+
+REMOVE TABLE IF EXISTS ingestion_item;
+REMOVE TABLE IF EXISTS ingestion_job;
+REMOVE TABLE IF EXISTS corpus_source;
+REMOVE TABLE IF EXISTS source_version;
+REMOVE TABLE IF EXISTS corpus;
+REMOVE TABLE IF EXISTS external_organization;
+REMOVE TABLE IF EXISTS consumer;
