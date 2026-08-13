@@ -38,26 +38,17 @@ _GUARD = (
 )
 
 
-async def _language_model():
-    """Instancie le modele de langue par defaut de Diwan."""
-    from esperanto import AIFactory
+async def _language_model(prompt: str):
+    """Obtient le modele de langue par la voie officielle de Diwan.
 
-    from open_notebook.ai.models import Model, ModelManager
+    provision_langchain_model resout le modele AVEC son credential (base_url et
+    cle du proxy). Instancier le modele a la main court-circuite cette
+    resolution et echoue avec "base URL is required".
+    """
+    from open_notebook.ai.provision import provision_langchain_model
 
     try:
-        defaults = await ModelManager().get_defaults()
-        model_id = (
-            getattr(defaults, "default_chat_model", None)
-            or getattr(defaults, "default_transformation_model", None)
-        )
-        if not model_id:
-            raise ValueError("aucun modele de langue par defaut")
-        model = await Model.get(model_id)
-        if not model:
-            raise ValueError("modele de langue introuvable")
-        return AIFactory.create_language(
-            model.provider, model.name, config={"max_tokens": 4000}
-        ).to_langchain()
+        return await provision_langchain_model(prompt, None, "transformation")
     except Exception as exc:
         logger.error(f"[consumers] modele de langue indisponible: {exc}")
         raise ConsumerAPIError(
@@ -89,7 +80,7 @@ def _parse_json(raw: str) -> Dict[str, Any]:
 
 
 async def _ask_json(prompt: str) -> Dict[str, Any]:
-    llm = await _language_model()
+    llm = await _language_model(prompt)
     result = await llm.ainvoke(prompt)
     content = getattr(result, "content", result)
     if isinstance(content, list):
