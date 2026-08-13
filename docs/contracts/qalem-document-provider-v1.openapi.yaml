@@ -1,0 +1,441 @@
+openapi: 3.1.0
+info:
+  title: Diwan, fournisseur documentaire pour Qalem
+  version: "1.0"
+  description: >
+    Facade documentaire versionnee. Qalem consomme cette API et rien d'autre :
+    aucun acces direct a SurrealDB, aucun vecteur transmis, aucune recherche
+    globale. L'organisation autorisee est toujours derivee du jeton presente.
+servers:
+  - url: https://diwan.ai-mpower.com
+security:
+  - serviceToken: []
+paths:
+  /api/v1/consumers/qalem/ingestions:
+    post:
+      summary: Importer une ou plusieurs sources
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          schema: { type: string }
+          description: Obligatoire si le champ idempotencyKey n'est pas fourni.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+                urls:
+                  type: array
+                  items: { type: string }
+                texts:
+                  type: array
+                  items: { type: string }
+                titles:
+                  type: array
+                  items: { type: string }
+                corpusId: { type: string }
+                corpusName: { type: string }
+                idempotencyKey: { type: string }
+      responses:
+        "202":
+          description: Import accepte
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestionAccepted" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "403": { $ref: "#/components/responses/Erreur" }
+        "413": { $ref: "#/components/responses/Erreur" }
+        "415": { $ref: "#/components/responses/Erreur" }
+        "422": { $ref: "#/components/responses/Erreur" }
+        "429": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/ingestions/{jobId}:
+    get:
+      summary: Suivre un import
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Etat de l'import
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestionStatus" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "404": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/sources:
+    get:
+      summary: Lister les sources autorisees
+      parameters:
+        - { in: query, name: corpusId, schema: { type: string } }
+        - { in: query, name: status, schema: { type: string } }
+        - { in: query, name: query, schema: { type: string } }
+        - { in: query, name: mediaType, schema: { type: string } }
+        - { in: query, name: page, schema: { type: integer, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, default: 20, maximum: 100 } }
+      responses:
+        "200":
+          description: Bibliotheque documentaire du perimetre
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SourceList" }
+        "401": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/sources/manifest:
+    post:
+      summary: Manifeste verifiable de sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sourceIds]
+              properties:
+                sourceIds:
+                  type: array
+                  items: { type: string }
+                contractVersion: { type: string }
+      responses:
+        "200":
+          description: Manifeste
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Manifest" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "403": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/retrieve:
+    post:
+      summary: Rechercher dans une liste blanche de sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [corpusId, sourceIds, query]
+              properties:
+                corpusId: { type: string }
+                sourceIds:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                query: { type: string }
+                limit: { type: integer, default: 12, maximum: 50 }
+                minimumScore: { type: number, default: 0.35 }
+                searchMode:
+                  type: string
+                  enum: [hybrid, vector, text]
+                  default: hybrid
+                contractVersion: { type: string }
+      responses:
+        "200":
+          description: Passages verifiables, ou absence de preuve
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RetrieveResult" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "403": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+        "422": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/alignment:
+    post:
+      summary: Evaluer la compatibilite entre une demande et des sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [corpusId, sourceIds, authorRequest]
+              properties:
+                corpusId: { type: string }
+                sourceIds:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                authorRequest: { type: string }
+                expectedLanguage: { type: string, default: fr-FR }
+                contractVersion: { type: string }
+      responses:
+        "200":
+          description: Analyse d'alignement
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AlignmentResult" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "403": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/conflicts:
+    post:
+      summary: Detecter les contradictions entre sources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [corpusId, sourceIds]
+              properties:
+                corpusId: { type: string }
+                sourceIds:
+                  type: array
+                  minItems: 1
+                  items: { type: string }
+                contractVersion: { type: string }
+      responses:
+        "200":
+          description: Contradictions substantielles
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConflictsResult" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "403": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/corpora/{corpusId}:
+    delete:
+      summary: Revoquer l'acces a un corpus
+      parameters:
+        - in: path
+          name: corpusId
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Corpus revoque, sources partagees preservees
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contractVersion: { type: string }
+                  requestId: { type: string }
+                  corpusId: { type: string }
+                  status: { type: string, enum: [revoked] }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "404": { $ref: "#/components/responses/Erreur" }
+components:
+  securitySchemes:
+    serviceToken:
+      type: http
+      scheme: bearer
+      description: >
+        Jeton de service propre a Qalem, distinct du mot de passe global
+        historique de Diwan. Diwan n'en conserve que l'empreinte SHA-256.
+  responses:
+    Erreur:
+      description: Erreur au format stable du contrat
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [contractVersion, requestId, error]
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        error:
+          type: object
+          required: [code, message, retryable, details]
+          properties:
+            code:
+              type: string
+              enum:
+                - UNAUTHENTICATED
+                - FORBIDDEN
+                - CORPUS_NOT_FOUND
+                - SOURCE_NOT_FOUND
+                - SOURCE_NOT_AUTHORIZED
+                - SOURCE_NOT_READY
+                - INVALID_SOURCE_TYPE
+                - FILE_TOO_LARGE
+                - INGESTION_FAILED
+                - EXTRACTION_FAILED
+                - OCR_FAILED
+                - EMBEDDING_FAILED
+                - EMBEDDING_MODEL_UNAVAILABLE
+                - EMBEDDING_DIMENSION_MISMATCH
+                - INSUFFICIENT_EVIDENCE
+                - RATE_LIMITED
+                - SERVICE_BUSY
+                - CONTRACT_VERSION_UNSUPPORTED
+                - INVALID_REQUEST
+            message: { type: string }
+            retryable: { type: boolean }
+            details: { type: object }
+    IngestionAccepted:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        jobId: { type: string }
+        corpusId: { type: string }
+        status: { type: string }
+        submittedSources: { type: integer }
+        pollAfterSeconds: { type: integer }
+    IngestionStatus:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        jobId: { type: string }
+        corpusId: { type: string }
+        status:
+          type: string
+          enum: [queued, extracting, chunking, embedding, ready, partially_failed, failed]
+        progress: { type: integer }
+        pollAfterSeconds: { type: integer }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceId: { type: string }
+              sourceVersion: { type: string }
+              originalName: { type: string }
+              status: { type: string }
+              checksumSha256: { type: string }
+              pages: { type: [integer, "null"] }
+              chunks: { type: integer }
+              errorCode: { type: [string, "null"] }
+              errorMessage: { type: [string, "null"] }
+    SourceList:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/SourceItem" }
+        pagination:
+          type: object
+          properties:
+            page: { type: integer }
+            pageSize: { type: integer }
+            total: { type: integer }
+    SourceItem:
+      type: object
+      properties:
+        sourceId: { type: string }
+        sourceVersion: { type: string }
+        corpusId: { type: string }
+        title: { type: [string, "null"] }
+        originalName: { type: [string, "null"] }
+        mediaType: { type: [string, "null"] }
+        status: { type: string }
+        checksumSha256: { type: [string, "null"] }
+        pages: { type: [integer, "null"] }
+        chunks: { type: integer }
+        createdAt: { type: string }
+    Manifest:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceId: { type: string }
+              sourceVersion: { type: string }
+              title: { type: [string, "null"] }
+              checksumSha256: { type: [string, "null"] }
+              status: { type: string }
+              parser:
+                type: object
+                properties:
+                  name: { type: [string, "null"] }
+                  version: { type: [string, "null"] }
+              embedding:
+                type: object
+                properties:
+                  model: { type: [string, "null"] }
+                  version: { type: [string, "null"] }
+                  chunks: { type: integer }
+    Evidence:
+      type: object
+      properties:
+        chunkId: { type: string }
+        sourceId: { type: string }
+        sourceVersion: { type: string }
+        sourceTitle: { type: [string, "null"] }
+        pageNumber: { type: [integer, "null"] }
+        sectionTitle: { type: [string, "null"] }
+        content: { type: string }
+        score: { type: number }
+        contentHash: { type: [string, "null"] }
+        sourceChecksumSha256: { type: [string, "null"] }
+    RetrieveResult:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        status: { type: string, enum: [ok, insufficient_evidence] }
+        query: { type: string }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/Evidence" }
+    AlignmentResult:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        status:
+          type: string
+          enum: [aligned, partially_aligned, conflicting, insufficient_evidence]
+        coverageScore: { type: number }
+        requestTopic: { type: string }
+        sourceTopics:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceId: { type: string }
+              topic: { type: string }
+        coveredRequirements:
+          type: array
+          items:
+            type: object
+            properties:
+              requirement: { type: string }
+              evidenceChunkIds:
+                type: array
+                items: { type: string }
+        missingRequirements:
+          type: array
+          items: { type: string }
+        conflicts:
+          type: array
+          items: { $ref: "#/components/schemas/Conflict" }
+        recommendedAction:
+          type: string
+          enum: [use_reformulated_request, add_or_replace_sources, author_arbitration]
+        suggestedRequirement: { type: string }
+    Conflict:
+      type: object
+      properties:
+        topic: { type: string }
+        explanation: { type: string }
+        positions:
+          type: array
+          items:
+            type: object
+            properties:
+              sourceId: { type: string }
+              chunkIds:
+                type: array
+                items: { type: string }
+    ConflictsResult:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        status: { type: string, enum: [no_material_conflict, conflicts_detected] }
+        conflicts:
+          type: array
+          items: { $ref: "#/components/schemas/Conflict" }
