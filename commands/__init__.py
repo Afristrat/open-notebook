@@ -8,6 +8,7 @@ from open_notebook.utils.proxy import ensure_internal_no_proxy
 
 ensure_internal_no_proxy()
 
+from .consumer_commands import consumer_ingest_source_command
 from .embedding_commands import (
     embed_insight_command,
     embed_note_command,
@@ -24,6 +25,7 @@ __all__ = [
     "embed_source_command",
     "rebuild_embeddings_command",
     # Other commands
+    "consumer_ingest_source_command",
     "generate_podcast_command",
     "process_source_command",
 ]
