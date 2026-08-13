@@ -16,6 +16,8 @@ from pathlib import Path
 from typing import Optional, TypedDict
 from urllib.parse import unquote, urlparse
 
+from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
+
 # Phase weights. The TTS phase (one clip per line, serialized by the VoxCPM
 # lock) is by far the longest, so it owns most of the bar (10% -> 95%).
 _PERCENT_OUTLINE = 3
@@ -44,11 +46,17 @@ def _episode_dir(output_dir: Optional[str], audio_file: Optional[str]) -> Option
 
     Prefers the stored output_dir; falls back to deriving it from a final
     audio_file path (<dir>/audio/<name>.mp3 -> <dir>) for legacy episodes.
+
+    Since migration 21, audio_file is stored RELATIVE to PODCASTS_FOLDER, so
+    the fallback goes through the shared read-side resolver instead of
+    treating the stored value as a filesystem path.
     """
     if output_dir:
         return _resolve_path(output_dir)
     if audio_file:
-        audio_path = _resolve_path(audio_file)
+        audio_path = resolve_contained_audio_path(audio_file)
+        if audio_path is None:
+            return None
         # <episode_dir>/audio/<name>.mp3
         return audio_path.parent.parent
     return None
