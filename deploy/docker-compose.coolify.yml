@@ -40,6 +40,18 @@ services:
       - SURREAL_PASSWORD=root
       - SURREAL_NAMESPACE=open_notebook
       - SURREAL_DATABASE=open_notebook
+      # Facade consommateur (contrat Qalem v1). La variable ne contient QUE des
+      # empreintes SHA-256 de jetons, jamais un jeton: Diwan ne detient donc
+      # aucune valeur reutilisable, meme si le conteneur est inspecte.
+      # Format: consommateur:organisation:empreinte, separes par des virgules.
+      # Plusieurs empreintes pour une meme organisation = rotation sans coupure.
+      - DIWAN_CONSUMER_TOKENS=${DIWAN_CONSUMER_TOKENS}
+      - DIWAN_CONSUMER_MAX_UPLOAD_MB=${DIWAN_CONSUMER_MAX_UPLOAD_MB:-50}
+      - DIWAN_CONSUMER_MAX_FILES=${DIWAN_CONSUMER_MAX_FILES:-20}
+      - DIWAN_CONSUMER_RATE_LIMIT=${DIWAN_CONSUMER_RATE_LIMIT:-120}
+      - DIWAN_CONSUMER_INGEST_RATE_LIMIT=${DIWAN_CONSUMER_INGEST_RATE_LIMIT:-10}
+      - DIWAN_CONSUMER_EXTRACTION_CONCURRENCY=${DIWAN_CONSUMER_EXTRACTION_CONCURRENCY:-2}
+      - DIWAN_CONSUMER_EMBEDDING_CONCURRENCY=${DIWAN_CONSUMER_EMBEDDING_CONCURRENCY:-2}
     volumes:
       - notebook_data:/app/data
     depends_on:
