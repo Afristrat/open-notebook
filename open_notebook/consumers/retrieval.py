@@ -68,17 +68,18 @@ async def assert_dimensions_match(
     """
     if not version_ids:
         return
+    # Un echantillon suffit: un index melangeant deux dimensions est un defaut
+    # global d'indexation, pas une anomalie isolee sur un bloc.
     rows = await repo_query(
         """
-        SELECT VALUE array::distinct(array::group(dimension)) FROM (
-            SELECT array::len(embedding) AS dimension
-            FROM source_embedding
-            WHERE source_version IN $versions AND embedding != NONE
-        ) GROUP ALL
+        SELECT array::len(embedding) AS dimension
+        FROM source_embedding
+        WHERE source_version IN $versions AND embedding != NONE
+        LIMIT 100
         """,
         {"versions": [ensure_record_id(v) for v in version_ids]},
     )
-    dimensions = [d for d in (rows[0] if rows else []) if d]
+    dimensions = sorted({r["dimension"] for r in rows if r.get("dimension")})
     mismatched = [d for d in dimensions if d != query_dimensions]
     if mismatched:
         raise ConsumerAPIError(
