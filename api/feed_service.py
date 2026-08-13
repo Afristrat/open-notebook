@@ -16,14 +16,15 @@ import unicodedata
 from datetime import datetime, timezone
 from email.utils import format_datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote, urlparse
+from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 from xml.sax.saxutils import escape, quoteattr
 
 from loguru import logger
 
 from open_notebook.config import PUBLIC_BASE_URL
 from open_notebook.database.repository import parse_record_ids, repo_query
+from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
 
 _ITUNES_NS = "http://www.itunes.com/dtds/podcast-1.0.dtd"
 _ATOM_NS = "http://www.w3.org/2005/Atom"
@@ -45,12 +46,6 @@ def _slugify(name: str) -> str:
         digest = hashlib.md5((name or "").encode("utf-8")).hexdigest()[:10]
         slug = f"show-{digest}"
     return slug
-
-
-def _resolve_audio_path(audio_file: str) -> Path:
-    if audio_file.startswith("file://"):
-        return Path(urlparse(audio_file).path)
-    return Path(audio_file)
 
 
 def _audio_duration_seconds(path: Path) -> Optional[int]:
@@ -213,7 +208,13 @@ async def build_feed(slug: str) -> Optional[str]:
         ep_id = str(ep.get("id"))
         title = ep.get("name") or "Episode"
         ep_desc = ep.get("description") or title
-        audio_path = _resolve_audio_path(ep.get("audio_file", ""))
+        # audio_file is stored RELATIVE to PODCASTS_FOLDER since migration 21;
+        # the shared read-side helper joins it back and refuses anything that
+        # escapes the root (legacy absolute / file:// rows return None).
+        audio_path = resolve_contained_audio_path(ep.get("audio_file"))
+        if audio_path is None:
+            logger.warning(f"[feed] unresolvable audio path for {ep_id}, skipping")
+            continue
         try:
             size = os.path.getsize(audio_path)
         except OSError:
