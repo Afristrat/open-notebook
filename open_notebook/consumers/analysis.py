@@ -77,8 +77,11 @@ async def _language_model(prompt: str):
         # max_tokens explicite: le defaut du modele configure (850) tronque la
         # sortie structuree, ce qui produit un JSON invalide et donc une analyse
         # rendue en insufficient_evidence alors que les preuves existent.
+        # temperature laissee au modele: l'API Anthropic refuse temperature et
+        # top_p ensemble, et la configuration de Diwan fixe les deux. Neutraliser
+        # temperature garde top_p et evite un 400 sur toute la famille Claude.
         return await provision_langchain_model(
-            prompt, model_id, "transformation", max_tokens=4000
+            prompt, model_id, "transformation", max_tokens=4000, temperature=None
         )
     except Exception as exc:
         logger.error(f"[consumers] modele de langue indisponible: {exc}")
