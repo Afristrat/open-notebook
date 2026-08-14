@@ -62,14 +62,40 @@ async def _language_model(prompt: str):
         )
 
 
+def build_labels(
+    evidence: Sequence[Dict[str, Any]],
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Associe une etiquette courte a chaque bloc et a chaque source.
+
+    Les identifiants SurrealDB sont longs et opaques: demander a un modele de
+    les recopier exactement produit des citations approximatives, que le filtre
+    anti-invention supprime ensuite, ce qui vide l'analyse de ses preuves. Des
+    etiquettes courtes sont recopiables de facon fiable, et la correspondance
+    vers les vrais identifiants est faite ICI, jamais par le modele.
+    """
+    chunk_labels: Dict[str, str] = {}
+    source_labels: Dict[str, str] = {}
+    for item in evidence:
+        chunk_id = str(item.get("chunkId"))
+        source_id = str(item.get("sourceId"))
+        if source_id not in source_labels:
+            source_labels[source_id] = f"S{len(source_labels) + 1}"
+        if chunk_id not in chunk_labels:
+            chunk_labels[chunk_id] = f"E{len(chunk_labels) + 1}"
+    return chunk_labels, source_labels
+
+
 def _render_evidence(evidence: Sequence[Dict[str, Any]]) -> str:
     """Serialise les preuves en blocs delimites et etiquetes."""
+    chunk_labels, source_labels = build_labels(evidence)
     parts: List[str] = []
     for item in evidence:
+        chunk_id = str(item.get("chunkId"))
+        source_id = str(item.get("sourceId"))
         parts.append(
             "<extrait "
-            f'chunkId="{item.get("chunkId")}" '
-            f'sourceId="{item.get("sourceId")}">\n'
+            f'id="{chunk_labels[chunk_id]}" '
+            f'source="{source_labels[source_id]}">\n'
             f"{(item.get('content') or '')[:2000]}\n"
             "</extrait>"
         )
@@ -97,12 +123,24 @@ async def _ask_json(prompt: str) -> Dict[str, Any]:
 
 
 def _keep_known_chunks(
-    values: Any, known: set
+    values: Any, known: set, labels: Optional[Dict[str, str]] = None
 ) -> List[str]:
-    """Ne conserve que des identifiants de blocs reellement fournis."""
+    """Ne conserve que des blocs reellement fournis, etiquettes ou non.
+
+    `labels` associe etiquette courte -> identifiant reel. Une etiquette
+    inconnue, comme un identifiant invente, est simplement ecartee: le modele
+    ne peut pas fabriquer une preuve.
+    """
     if not isinstance(values, list):
         return []
-    return [str(v) for v in values if str(v) in known]
+    resolved: List[str] = []
+    for value in values:
+        candidate = str(value).strip()
+        if labels and candidate in labels:
+            candidate = labels[candidate]
+        if candidate in known and candidate not in resolved:
+            resolved.append(candidate)
+    return resolved
 
 
 def _clean_text(value: Any, limit: int = 2000) -> str:
@@ -117,6 +155,9 @@ async def analyse_alignment(
 ) -> Dict[str, Any]:
     """Confronte une demande de formation aux extraits autorises."""
     known = {str(item.get("chunkId")) for item in evidence}
+    chunk_labels, source_labels = build_labels(evidence)
+    to_chunk = {label: real for real, label in chunk_labels.items()}
+    to_source = {label: real for real, label in source_labels.items()}
 
     prompt = f"""{_GUARD}
 
@@ -134,11 +175,11 @@ Rends un JSON avec exactement ces cles:
   "status": "aligned" | "partially_aligned" | "conflicting" | "insufficient_evidence"
   "coverageScore": nombre entre 0 et 1
   "requestTopic": sujet reel de la demande, en une phrase
-  "sourceTopics": [ {{"sourceId": "...", "topic": "..."}} ]
-  "coveredRequirements": [ {{"requirement": "...", "evidenceChunkIds": ["chunk:..."]}} ]
+  "sourceTopics": [ {{"sourceId": "S1", "topic": "..."}} ]
+  "coveredRequirements": [ {{"requirement": "...", "evidenceChunkIds": ["E1", "E2"]}} ]
   "missingRequirements": ["exigence non couverte par les extraits"]
   "conflicts": [ {{"topic": "...", "explanation": "...",
-                   "positions": [ {{"sourceId": "...", "chunkIds": ["chunk:..."]}} ]}} ]
+                   "positions": [ {{"sourceId": "S1", "chunkIds": ["E1"]}} ]}} ]
   "recommendedAction": "use_reformulated_request" | "add_or_replace_sources" | "author_arbitration"
   "suggestedRequirement": "demande reformulee, complete et directement exploitable"
 
@@ -148,7 +189,9 @@ Regles de rendu:
   - elle conserve les contraintes de l'auteur compatibles avec les extraits;
   - elle retire ou corrige celles que les extraits contredisent;
   - elle n'invente ni public, ni duree, ni chiffre absent des extraits;
-  - chaque exigence couverte cite au moins un chunkId present ci-dessus;
+  - tu cites les extraits par leur etiquette exacte (E1, E2, ...) et les
+    sources par la leur (S1, S2, ...), telles qu'elles apparaissent ci-dessus;
+  - chaque exigence couverte cite au moins une etiquette d'extrait presente;
   - si les extraits ne permettent pas de conclure, status vaut
     "insufficient_evidence" et recommendedAction vaut "add_or_replace_sources";
   - si deux sources se contredisent sur un point important, status vaut
@@ -179,7 +222,7 @@ Regles de rendu:
     for entry in parsed.get("coveredRequirements") or []:
         if not isinstance(entry, dict):
             continue
-        chunk_ids = _keep_known_chunks(entry.get("evidenceChunkIds"), known)
+        chunk_ids = _keep_known_chunks(entry.get("evidenceChunkIds"), known, to_chunk)
         if not chunk_ids:
             continue
         covered.append(
@@ -189,7 +232,7 @@ Regles de rendu:
             }
         )
 
-    conflicts = _clean_conflicts(parsed.get("conflicts"), known)
+    conflicts = _clean_conflicts(parsed.get("conflicts"), known, to_chunk, to_source)
 
     status = str(parsed.get("status") or "insufficient_evidence")
     if status not in {
@@ -230,7 +273,10 @@ Regles de rendu:
         "requestTopic": _clean_text(parsed.get("requestTopic"), 500),
         "sourceTopics": [
             {
-                "sourceId": _clean_text(t.get("sourceId"), 200),
+                "sourceId": to_source.get(
+                    _clean_text(t.get("sourceId"), 200),
+                    _clean_text(t.get("sourceId"), 200),
+                ),
                 "topic": _clean_text(t.get("topic"), 500),
             }
             for t in (parsed.get("sourceTopics") or [])
@@ -248,7 +294,12 @@ Regles de rendu:
     }
 
 
-def _clean_conflicts(raw: Any, known: set) -> List[Dict[str, Any]]:
+def _clean_conflicts(
+    raw: Any,
+    known: set,
+    to_chunk: Optional[Dict[str, str]] = None,
+    to_source: Optional[Dict[str, str]] = None,
+) -> List[Dict[str, Any]]:
     conflicts: List[Dict[str, Any]] = []
     for entry in raw or []:
         if not isinstance(entry, dict):
@@ -257,19 +308,17 @@ def _clean_conflicts(raw: Any, known: set) -> List[Dict[str, Any]]:
         for position in entry.get("positions") or []:
             if not isinstance(position, dict):
                 continue
-            chunk_ids = _keep_known_chunks(position.get("chunkIds"), known)
+            chunk_ids = _keep_known_chunks(position.get("chunkIds"), known, to_chunk)
             if not chunk_ids:
                 continue
-            positions.append(
-                {
-                    "sourceId": _clean_text(position.get("sourceId"), 200),
-                    "chunkIds": chunk_ids,
-                }
-            )
+            source_id = _clean_text(position.get("sourceId"), 200)
+            if to_source and source_id in to_source:
+                source_id = to_source[source_id]
+            positions.append({"sourceId": source_id, "chunkIds": chunk_ids})
         # Une contradiction n'existe que si au moins deux positions sont
         # etayees par des blocs reels. Un ecart de score vectoriel ne suffit
         # jamais a declarer un conflit.
-        if len(positions) < 2:
+        if len({p["sourceId"] for p in positions}) < 2:
             continue
         conflicts.append(
             {
@@ -291,6 +340,9 @@ async def detect_conflicts(
     sources = {str(item.get("sourceId")) for item in evidence}
     if len(sources) < 2 or not evidence:
         return "no_material_conflict", []
+    chunk_labels, source_labels = build_labels(evidence)
+    to_chunk = {label: real for real, label in chunk_labels.items()}
+    to_source = {label: real for real, label in source_labels.items()}
 
     prompt = f"""{_GUARD}
 
@@ -302,7 +354,7 @@ Extraits:
 Rends un JSON avec exactement ces cles:
   "conflicts": [ {{"topic": "...", "kind": "contradiction" | "perimetre" | "date",
                    "explanation": "...",
-                   "positions": [ {{"sourceId": "...", "chunkIds": ["chunk:..."]}} ]}} ]
+                   "positions": [ {{"sourceId": "S1", "chunkIds": ["E1"]}} ]}} ]
 
 Regles:
   - ne retiens que les contradictions REELLES: deux sources affirment des
@@ -312,7 +364,9 @@ Regles:
     cas general) se declare avec kind "perimetre", pas comme une contradiction;
   - une difference de date (donnees d'annees differentes) se declare avec kind
     "date";
-  - chaque position cite au moins un chunkId present ci-dessus;
+  - tu cites les extraits par leur etiquette exacte (E1, E2, ...) et les
+    sources par la leur (S1, S2, ...);
+  - chaque position cite au moins une etiquette d'extrait presente ci-dessus;
   - si rien de substantiel ne s'oppose, rends une liste vide;
   - toutes les chaines sont redigees en {expected_language}.
 """
@@ -325,12 +379,10 @@ Regles:
         logger.error(f"[consumers] detection de contradictions inexploitable: {exc}")
         return "no_material_conflict", []
 
-    material = [
-        c
-        for c in _clean_conflicts(parsed.get("conflicts"), known)
-        if _kind_of(parsed, c) == "contradiction"
-    ]
-    all_findings = _clean_conflicts(parsed.get("conflicts"), known)
+    all_findings = _clean_conflicts(
+        parsed.get("conflicts"), known, to_chunk, to_source
+    )
+    material = [c for c in all_findings if _kind_of(parsed, c) == "contradiction"]
     status = "conflicts_detected" if material else "no_material_conflict"
     return status, all_findings
 
