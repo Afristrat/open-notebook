@@ -52,6 +52,11 @@ services:
       - DIWAN_CONSUMER_INGEST_RATE_LIMIT=${DIWAN_CONSUMER_INGEST_RATE_LIMIT:-10}
       - DIWAN_CONSUMER_EXTRACTION_CONCURRENCY=${DIWAN_CONSUMER_EXTRACTION_CONCURRENCY:-2}
       - DIWAN_CONSUMER_EMBEDDING_CONCURRENCY=${DIWAN_CONSUMER_EMBEDDING_CONCURRENCY:-2}
+      # Modele d'analyse structuree (alignement, contradictions). Un petit
+      # modele local rend du JSON valide mais aux types fantaisistes, ce qui
+      # degrade l'analyse en insufficient_evidence. Designer ici un modele qui
+      # respecte un schema. Vide = modele de transformation par defaut.
+      - DIWAN_CONSUMER_ANALYSIS_MODEL=${DIWAN_CONSUMER_ANALYSIS_MODEL:-}
     volumes:
       - notebook_data:/app/data
     depends_on:
