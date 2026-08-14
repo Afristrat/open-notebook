@@ -292,6 +292,15 @@ a une autre organisation rendent exactement la meme reponse.
 | Extractions simultanees | 2 | `DIWAN_CONSUMER_EXTRACTION_CONCURRENCY` |
 | Vectorisations simultanees | 2 | `DIWAN_CONSUMER_EMBEDDING_CONCURRENCY` |
 | Passages par recherche | 50 au maximum | parametre `limit` |
+| Modele d'analyse structuree | modele de transformation par defaut | `DIWAN_CONSUMER_ANALYSIS_MODEL` |
+
+Precision importante sur `DIWAN_CONSUMER_ANALYSIS_MODEL` : les endpoints
+`/alignment` et `/conflicts` demandent une sortie JSON conforme a un schema. Un
+petit modele local rend souvent du JSON valide mais aux types fantaisistes
+(listes de chaines la ou des objets sont attendus). Diwan ne devine jamais dans
+ce cas : il degrade en `insufficient_evidence` plutot que de rendre une analyse
+approximative. Designer ici un modele qui respecte un schema est donc la
+condition d'une analyse exploitable, et non un simple reglage de confort.
 
 Deux vectorisations simultanees d'une meme version sont impossibles : un verrou
 par version serialise les traitements.
