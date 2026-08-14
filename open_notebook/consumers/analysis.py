@@ -15,6 +15,7 @@ Deux principes gouvernent ce module.
 """
 
 import json
+import os
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -46,13 +47,38 @@ async def _language_model(prompt: str):
     resolution et echoue avec "base URL is required".
     """
     from open_notebook.ai.provision import provision_langchain_model
+    from open_notebook.database.repository import repo_query
+
+    # L'analyse structuree exige un modele qui respecte un schema JSON. Le
+    # modele de transformation par defaut de Diwan peut etre un petit modele
+    # local, qui rend du JSON valide mais aux types fantaisistes (listes de
+    # chaines la ou des objets sont attendus). DIWAN_CONSUMER_ANALYSIS_MODEL
+    # permet de designer un modele capable, par son NOM tel qu'il apparait dans
+    # Diwan. Sans cette variable, le defaut historique s'applique.
+    model_id: Optional[str] = None
+    wanted = (os.getenv("DIWAN_CONSUMER_ANALYSIS_MODEL") or "").strip()
+    if wanted:
+        try:
+            rows = await repo_query(
+                "SELECT VALUE id FROM model WHERE name = $name AND type = 'language' LIMIT 1",
+                {"name": wanted},
+            )
+            if rows:
+                model_id = str(rows[0])
+            else:
+                logger.warning(
+                    f"[consumers] modele d'analyse '{wanted}' introuvable, "
+                    "retour au modele de transformation par defaut"
+                )
+        except Exception as exc:
+            logger.warning(f"[consumers] resolution du modele d'analyse impossible: {exc}")
 
     try:
         # max_tokens explicite: le defaut du modele configure (850) tronque la
         # sortie structuree, ce qui produit un JSON invalide et donc une analyse
         # rendue en insufficient_evidence alors que les preuves existent.
         return await provision_langchain_model(
-            prompt, None, "transformation", max_tokens=4000
+            prompt, model_id, "transformation", max_tokens=4000
         )
     except Exception as exc:
         logger.error(f"[consumers] modele de langue indisponible: {exc}")
@@ -271,6 +297,9 @@ Regles de rendu:
         "status": status,
         "coverageScore": round(coverage, 2),
         "requestTopic": _clean_text(parsed.get("requestTopic"), 500),
+        # Certains modeles rendent sourceTopics en simple liste de chaines.
+        # C'est une information descriptive, jamais une preuve: on l'accepte
+        # sans identifiant plutot que de la jeter.
         "sourceTopics": [
             {
                 "sourceId": to_source.get(
@@ -279,8 +308,9 @@ Regles de rendu:
                 ),
                 "topic": _clean_text(t.get("topic"), 500),
             }
-            for t in (parsed.get("sourceTopics") or [])
             if isinstance(t, dict)
+            else {"sourceId": "", "topic": _clean_text(t, 500)}
+            for t in (parsed.get("sourceTopics") or [])
         ],
         "coveredRequirements": covered,
         "missingRequirements": [
