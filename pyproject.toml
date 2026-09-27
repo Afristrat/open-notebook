@@ -89,6 +89,12 @@ ignore = [
     "F541",  # f-string without placeholders
 ]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:Support for class-based `config` is deprecated.*:DeprecationWarning:surreal_commands.core.retry",
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:Warning",
+]
+
 [tool.uv]
 # Pillow < 12.2.0 has open security advisories (PSD OOB write, FITS
 # decompression bomb, PDF trailer DoS). The only thing holding it back is

@@ -247,6 +247,7 @@ app.add_middleware(
         "/api/auth/status",
         "/api/config",
         "/api/v1/consumers/qalem/connectors/google-drive/callback",
+        "/api/v1/consumers/qalem/connectors/notion/callback",
     ],
 )
 

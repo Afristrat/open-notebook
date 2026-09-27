@@ -9,7 +9,7 @@ Cette facade n'a AUCUN repli vers les routes historiques /api/sources ou
 """
 
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from loguru import logger
@@ -32,13 +32,19 @@ from open_notebook.consumers.errors import (
 )
 from open_notebook.consumers.external_connections import (
     GOOGLE_DRIVE,
+    NOTION,
+    ExternalDocument,
     begin_google_drive_authorization,
+    begin_notion_authorization,
     complete_google_drive_authorization,
+    complete_notion_authorization,
     connection_metadata,
     connector_return_url,
     load_google_drive_document,
+    load_notion_document,
     revoke_connection,
     search_google_drive,
+    search_notion,
 )
 from open_notebook.consumers.ingestion import (
     attach_to_corpus,
@@ -210,13 +216,70 @@ async def disconnect_google_drive(
     return _envelope(request, {"provider": GOOGLE_DRIVE, "status": "revoked"})
 
 
-@router.post("/connectors/google-drive/imports", status_code=202)
-async def import_google_drive(
+@router.post("/connectors/notion/authorize")
+async def authorize_notion(
+    request: Request,
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Demarre l'autorisation Notion et son choix explicite de pages."""
+    organization_id = await resolve_organization(identity)
+    authorization_url = await begin_notion_authorization(organization_id)
+    return _envelope(
+        request,
+        {
+            "provider": NOTION,
+            "authorizationUrl": authorization_url,
+            "expiresInSeconds": 600,
+        },
+    )
+
+
+@router.get("/connectors/notion/callback", include_in_schema=False)
+async def notion_callback(code: str, state: str) -> RedirectResponse:
+    """Termine OAuth Notion sans accepter de tenant depuis le navigateur."""
+    organization_external_id = await complete_notion_authorization(code, state)
+    return RedirectResponse(
+        connector_return_url(NOTION, "connected", organization_external_id),
+        status_code=303,
+    )
+
+
+@router.get("/connectors/notion/search")
+async def notion_search(
+    request: Request,
+    query: str = Query(default="", max_length=300),
+    pageSize: int = Query(default=20, ge=1, le=100),
+    pageToken: Optional[str] = Query(default=None, max_length=2048),
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Recherche les pages que l'auteur a explicitement partagees avec Diwan."""
+    organization_id = await resolve_organization(identity)
+    result = await search_notion(
+        organization_id, query, page_size=pageSize, page_token=pageToken
+    )
+    return _envelope(request, {"provider": NOTION, **result})
+
+
+@router.delete("/connectors/notion")
+async def disconnect_notion(
+    request: Request,
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Revoque la connexion Notion sans effacer les versions citees."""
+    organization_id = await resolve_organization(identity)
+    await revoke_connection(organization_id, NOTION)
+    return _envelope(request, {"provider": NOTION, "status": "revoked"})
+
+
+async def _import_external_documents(
     request: Request,
     payload: ConnectorImportRequest,
-    identity: ConsumerIdentity = Depends(ingestion_identity),
+    identity: ConsumerIdentity,
+    provider: str,
+    default_corpus_name: str,
+    loader: Callable[[str, str], Awaitable[ExternalDocument]],
 ) -> Dict[str, Any]:
-    """Epingle les versions Google Drive choisies dans un corpus Diwan."""
+    """Epingle des versions externes dans le contrat documentaire commun."""
     from surreal_commands import submit_command
 
     _check_contract(payload.contractVersion)
@@ -248,11 +311,11 @@ async def import_google_drive(
         corpus = await get_corpus_or_fail(organization_id, payload.corpusId)
     else:
         corpus = await create_corpus(
-            organization_id, (payload.corpusName or "Google Drive").strip()
+            organization_id, (payload.corpusName or default_corpus_name).strip()
         )
     corpus_id = _as_str(corpus["id"])
     documents = [
-        await load_google_drive_document(organization_id, external_id)
+        await loader(organization_id, external_id)
         for external_id in dict.fromkeys(payload.externalIds)
     ]
     if len(documents) != len(payload.externalIds):
@@ -297,7 +360,7 @@ async def import_google_drive(
             """,
             {
                 "connection": ensure_record_id(document.connection_id),
-                "provider": GOOGLE_DRIVE,
+                "provider": provider,
                 "external_id": document.external_id,
             },
         )
@@ -332,7 +395,7 @@ async def import_google_drive(
                     title = $title,
                     original_name = $original_name,
                     media_type = $media_type,
-                    source_type = 'google-drive',
+                    source_type = $provider,
                     storage_path = $storage_path,
                     external_connection = $connection,
                     external_provider = $provider,
@@ -350,7 +413,7 @@ async def import_google_drive(
                     "media_type": media_type,
                     "storage_path": stored,
                     "connection": ensure_record_id(document.connection_id),
-                    "provider": GOOGLE_DRIVE,
+                    "provider": provider,
                     "external_id": document.external_id,
                     "external_version": document.provider_version,
                     "external_url": document.source_url,
@@ -366,7 +429,7 @@ async def import_google_drive(
                 job = $job,
                 source_version = $version,
                 original_name = $original_name,
-                source_type = 'google-drive',
+                source_type = $provider,
                 payload_ref = $payload_ref,
                 status = $status
             """,
@@ -374,6 +437,7 @@ async def import_google_drive(
                 "job": ensure_record_id(job_id),
                 "version": ensure_record_id(version_id),
                 "original_name": document.filename,
+                "provider": provider,
                 "payload_ref": stored,
                 "status": item_status,
             },
@@ -407,6 +471,35 @@ async def import_google_drive(
             "submittedSources": len(documents),
             "pollAfterSeconds": POLL_AFTER_SECONDS,
         },
+    )
+
+
+@router.post("/connectors/google-drive/imports", status_code=202)
+async def import_google_drive(
+    request: Request,
+    payload: ConnectorImportRequest,
+    identity: ConsumerIdentity = Depends(ingestion_identity),
+) -> Dict[str, Any]:
+    """Epingle les versions Google Drive choisies dans un corpus Diwan."""
+    return await _import_external_documents(
+        request,
+        payload,
+        identity,
+        GOOGLE_DRIVE,
+        "Google Drive",
+        load_google_drive_document,
+    )
+
+
+@router.post("/connectors/notion/imports", status_code=202)
+async def import_notion(
+    request: Request,
+    payload: ConnectorImportRequest,
+    identity: ConsumerIdentity = Depends(ingestion_identity),
+) -> Dict[str, Any]:
+    """Epingle les versions Notion choisies dans un corpus Diwan."""
+    return await _import_external_documents(
+        request, payload, identity, NOTION, "Notion", load_notion_document
     )
 
 
