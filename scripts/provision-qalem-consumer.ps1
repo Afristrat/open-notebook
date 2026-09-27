@@ -190,6 +190,17 @@ function Wait-Deployment {
     throw "Delai Coolify depasse pour $DeploymentUuid"
 }
 
+function Wait-DiwanFacade {
+    $deadline = (Get-Date).AddMinutes(5)
+    while ((Get-Date) -lt $deadline) {
+        # La facade fermee doit repondre 401 sans jeton. Un 502 signifie que
+        # Coolify a termine le job mais que Traefik n'a pas encore une cible prete.
+        if ((Get-HttpStatus -Uri "$diwanBase/sources") -eq 401) { return }
+        Start-Sleep -Seconds 5
+    }
+    throw 'La facade publique Diwan n est pas redevenue disponible'
+}
+
 function Invoke-Diwan {
     param(
         [Parameter(Mandatory = $true)][string]$Token,
@@ -232,6 +243,7 @@ try {
     $deployments.Add($qalemDeployment)
     Wait-Deployment -DeploymentUuid $diwanDeployment
     Wait-Deployment -DeploymentUuid $qalemDeployment
+    Wait-DiwanFacade
 
     $anonymousStatus = Get-HttpStatus -Uri "$diwanBase/sources"
     $primarySources = Invoke-Diwan -Token $primaryToken -Method Get -Path '/sources?page=1&pageSize=20'
@@ -332,6 +344,7 @@ Pour un apprentissage adulte, chaque activite relie une situation professionnell
     $revocationDeployment = Start-Deployment -ApplicationUuid $DiwanApplicationUuid -Commit $DiwanCommit
     $deployments.Add($revocationDeployment)
     Wait-Deployment -DeploymentUuid $revocationDeployment
+    Wait-DiwanFacade
 
     $primaryAfterRotation = Get-HttpStatus -Uri "$diwanBase/sources" `
         -Headers @{ Authorization = "Bearer $primaryToken" }
