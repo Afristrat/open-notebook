@@ -282,6 +282,41 @@ Variables requises : `DIWAN_GOOGLE_DRIVE_CLIENT_ID`,
 exactement
 `https://diwan.ai-mpower.com/api/v1/consumers/qalem/connectors/google-drive/callback`.
 
+### 4.10 Connecter Notion
+
+Notion suit la meme frontiere tenant-scopee. Le flux OAuth public presente le
+selecteur de pages natif de Notion : l'auteur choisit explicitement les pages et
+bases partagees avec la connexion. Diwan ne peut ni rechercher ni lire une page
+qui n'a pas ete accordee.
+
+1. `POST /api/v1/consumers/qalem/connectors/notion/authorize` renvoie une
+   `authorizationUrl` Notion valable dix minutes. L'etat aleatoire est hache,
+   lie a l'organisation deduite du jeton Qalem et utilisable une seule fois.
+2. Notion rappelle `GET /api/v1/consumers/qalem/connectors/notion/callback`.
+   Diwan echange le code par authentification HTTP Basic, chiffre le jeton
+   d'acces et le jeton de renouvellement, puis revient au tenant Qalem exact.
+3. `GET /api/v1/consumers/qalem/connectors/notion/search` accepte `query`,
+   `pageSize` et `pageToken`, et ne renvoie que les pages partagees, non
+   archivees et non placees dans la corbeille.
+4. `POST /api/v1/consumers/qalem/connectors/notion/imports` accepte la meme
+   enveloppe idempotente que Google Drive. La version fournisseur correspond au
+   `last_edited_time` de la page ; le contenu texte inclut ses blocs enfants,
+   tableaux, equations et pages enfants, dans la limite de 5 000 blocs et
+   10 Mio par page.
+5. `DELETE /api/v1/consumers/qalem/connectors/notion` revoque la connexion
+   Diwan. Les versions deja citees restent immuables ; les lectures futures de
+   Notion sont coupees.
+
+Variables requises : `DIWAN_NOTION_CLIENT_ID`,
+`DIWAN_NOTION_CLIENT_SECRET`, `DIWAN_PUBLIC_URL` et
+`DIWAN_QALEM_RETURN_URL`. L'URI de redirection enregistree chez Notion doit etre
+exactement
+`https://diwan.ai-mpower.com/api/v1/consumers/qalem/connectors/notion/callback`.
+
+Le contrat envoie `Notion-Version: 2026-03-11`. Une page retiree du partage,
+inconnue ou devenue inaccessible rend `EXTERNAL_SOURCE_NOT_FOUND` sans reveler
+si elle existe dans un autre espace de travail.
+
 ## 5. Matrice des erreurs
 
 Toutes les erreurs suivent la meme enveloppe :

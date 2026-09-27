@@ -85,6 +85,70 @@ paths:
         "200": { description: Connexion revoquee }
         "401": { $ref: "#/components/responses/Erreur" }
         "409": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/notion/authorize:
+    post:
+      summary: Commencer l'autorisation Notion et le choix explicite des pages
+      responses:
+        "200":
+          description: URL d'autorisation temporaire
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectorAuthorization" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/notion/callback:
+    get:
+      summary: Terminer l'autorisation Notion
+      security: []
+      parameters:
+        - { in: query, name: code, required: true, schema: { type: string } }
+        - { in: query, name: state, required: true, schema: { type: string } }
+      responses:
+        "303": { description: Redirection vers le tenant Qalem }
+        "400": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/notion/search:
+    get:
+      summary: Rechercher les pages Notion explicitement partagees
+      parameters:
+        - { in: query, name: query, schema: { type: string, maxLength: 300 } }
+        - { in: query, name: pageSize, schema: { type: integer, default: 20, maximum: 100 } }
+        - { in: query, name: pageToken, schema: { type: string } }
+      responses:
+        "200":
+          description: Pages Notion accessibles
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExternalSourceList" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/notion/imports:
+    post:
+      summary: Importer des versions immuables depuis Notion
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectorImport" }
+      responses:
+        "202":
+          description: Import accepte ou job idempotent existant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestionAccepted" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "404": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+        "422": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/notion:
+    delete:
+      summary: Revoquer la connexion Notion du tenant
+      responses:
+        "200": { description: Connexion revoquee }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
   /api/v1/consumers/qalem/ingestions:
     post:
       summary: Importer une ou plusieurs sources
@@ -366,7 +430,7 @@ components:
             type: object
             properties:
               connectionId: { type: string }
-              provider: { type: string, enum: [google-drive] }
+              provider: { type: string, enum: [google-drive, notion] }
               accountLabel: { type: [string, "null"] }
               scopes: { type: array, items: { type: string } }
               createdAt: { type: string }
@@ -376,7 +440,7 @@ components:
       properties:
         contractVersion: { type: string }
         requestId: { type: string }
-        provider: { type: string, enum: [google-drive] }
+        provider: { type: string, enum: [google-drive, notion] }
         authorizationUrl: { type: string, format: uri }
         expiresInSeconds: { type: integer }
     ExternalSourceList:
@@ -384,7 +448,7 @@ components:
       properties:
         contractVersion: { type: string }
         requestId: { type: string }
-        provider: { type: string, enum: [google-drive] }
+        provider: { type: string, enum: [google-drive, notion] }
         nextPageToken: { type: [string, "null"] }
         items:
           type: array
