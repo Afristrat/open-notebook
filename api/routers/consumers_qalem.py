@@ -176,9 +176,10 @@ async def authorize_google_drive(
 @router.get("/connectors/google-drive/callback", include_in_schema=False)
 async def google_drive_callback(code: str, state: str) -> RedirectResponse:
     """Callback OAuth public ; l'organisation provient uniquement de l'etat signe."""
-    await complete_google_drive_authorization(code, state)
+    organization_external_id = await complete_google_drive_authorization(code, state)
     return RedirectResponse(
-        connector_return_url(GOOGLE_DRIVE, "connected"), status_code=303
+        connector_return_url(GOOGLE_DRIVE, "connected", organization_external_id),
+        status_code=303,
     )
 
 

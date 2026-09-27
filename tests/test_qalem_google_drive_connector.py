@@ -11,6 +11,23 @@ from open_notebook.consumers import external_connections as connectors
 from open_notebook.consumers.errors import ConsumerAPIError
 
 
+def test_retour_qalem_conserve_le_tenant(monkeypatch):
+    monkeypatch.setenv("DIWAN_QALEM_RETURN_URL", "https://qalem.ma/app")
+    target = urlparse(
+        connectors.connector_return_url(
+            connectors.GOOGLE_DRIVE, "connected", "aa7870b7-3938-4f24-b8bf-4a9d73565ba7"
+        )
+    )
+    query = parse_qs(target.query)
+
+    assert f"{target.scheme}://{target.netloc}{target.path}" == "https://qalem.ma/app"
+    assert query == {
+        "connector": ["google-drive"],
+        "status": ["connected"],
+        "orgId": ["aa7870b7-3938-4f24-b8bf-4a9d73565ba7"],
+    }
+
+
 @pytest.mark.asyncio
 async def test_authorization_scope_et_etat_sont_minimaux(monkeypatch):
     writes: List[Dict[str, Any]] = []
