@@ -1,3 +1,5 @@
+#Requires -Version 7.0
+
 [CmdletBinding()]
 param(
     [string]$DiwanApplicationUuid = 'ohir87jvt32284sh6wfwhhz2',
