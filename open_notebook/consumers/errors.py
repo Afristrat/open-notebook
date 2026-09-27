@@ -45,6 +45,10 @@ RATE_LIMITED = "RATE_LIMITED"
 SERVICE_BUSY = "SERVICE_BUSY"
 CONTRACT_VERSION_UNSUPPORTED = "CONTRACT_VERSION_UNSUPPORTED"
 INVALID_REQUEST = "INVALID_REQUEST"
+CONNECTION_REQUIRED = "CONNECTION_REQUIRED"
+OAUTH_STATE_INVALID = "OAUTH_STATE_INVALID"
+EXTERNAL_SOURCE_NOT_FOUND = "EXTERNAL_SOURCE_NOT_FOUND"
+PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
 
 # (statut HTTP, message par defaut, rejouable)
 _CATALOG: Dict[str, tuple] = {
@@ -92,6 +96,26 @@ _CATALOG: Dict[str, tuple] = {
         False,
     ),
     INVALID_REQUEST: (422, "La requete est invalide.", False),
+    CONNECTION_REQUIRED: (
+        409,
+        "Ce fournisseur documentaire doit etre connecte pour cette organisation.",
+        False,
+    ),
+    OAUTH_STATE_INVALID: (
+        400,
+        "Cette tentative de connexion est invalide, expiree ou deja utilisee.",
+        False,
+    ),
+    EXTERNAL_SOURCE_NOT_FOUND: (
+        404,
+        "Cette source externe est introuvable ou n'est plus autorisee.",
+        False,
+    ),
+    PROVIDER_UNAVAILABLE: (
+        502,
+        "Le fournisseur documentaire est momentanement indisponible.",
+        True,
+    ),
 }
 
 
@@ -117,9 +141,7 @@ class ConsumerAPIError(HTTPException):
         self.retryable = retryable
         self.details = details or {}
         self.message = message or default_message
-        super().__init__(
-            status_code=status_code or default_status, detail=self.message
-        )
+        super().__init__(status_code=status_code or default_status, detail=self.message)
 
 
 def error_payload(

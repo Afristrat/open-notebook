@@ -11,9 +11,10 @@ Cette facade n'a AUCUN repli vers les routes historiques /api/sources ou
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from loguru import logger
 from pydantic import BaseModel, Field
+from starlette.responses import RedirectResponse
 
 from open_notebook.consumers import CONTRACT_VERSION
 from open_notebook.consumers.analysis import analyse_alignment, detect_conflicts
@@ -28,6 +29,16 @@ from open_notebook.consumers.errors import (
     INVALID_REQUEST,
     SOURCE_NOT_READY,
     ConsumerAPIError,
+)
+from open_notebook.consumers.external_connections import (
+    GOOGLE_DRIVE,
+    begin_google_drive_authorization,
+    complete_google_drive_authorization,
+    connection_metadata,
+    connector_return_url,
+    load_google_drive_document,
+    revoke_connection,
+    search_google_drive,
 )
 from open_notebook.consumers.ingestion import (
     attach_to_corpus,
@@ -122,6 +133,280 @@ class ConflictsRequest(BaseModel):
     corpusId: str
     sourceIds: List[str] = Field(default_factory=list)
     contractVersion: Optional[str] = None
+
+
+class ConnectorImportRequest(BaseModel):
+    externalIds: List[str] = Field(min_length=1, max_length=20)
+    corpusId: Optional[str] = None
+    corpusName: Optional[str] = None
+    idempotencyKey: str = Field(min_length=1, max_length=512)
+    contractVersion: Optional[str] = None
+
+
+@router.get("/connectors")
+async def list_connectors(
+    request: Request,
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Liste les connexions actives sans jamais exposer leurs credentials."""
+    organization_id = await resolve_organization(identity)
+    return _envelope(
+        request, {"connections": await connection_metadata(organization_id)}
+    )
+
+
+@router.post("/connectors/google-drive/authorize")
+async def authorize_google_drive(
+    request: Request,
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Demarre une connexion Google limitee aux fichiers choisis par l'auteur."""
+    organization_id = await resolve_organization(identity)
+    authorization_url = await begin_google_drive_authorization(organization_id)
+    return _envelope(
+        request,
+        {
+            "provider": GOOGLE_DRIVE,
+            "authorizationUrl": authorization_url,
+            "expiresInSeconds": 600,
+        },
+    )
+
+
+@router.get("/connectors/google-drive/callback", include_in_schema=False)
+async def google_drive_callback(code: str, state: str) -> RedirectResponse:
+    """Callback OAuth public ; l'organisation provient uniquement de l'etat signe."""
+    await complete_google_drive_authorization(code, state)
+    return RedirectResponse(
+        connector_return_url(GOOGLE_DRIVE, "connected"), status_code=303
+    )
+
+
+@router.get("/connectors/google-drive/search")
+async def google_drive_search(
+    request: Request,
+    query: str = Query(default="", max_length=300),
+    pageSize: int = Query(default=20, ge=1, le=100),
+    pageToken: Optional[str] = Query(default=None, max_length=2048),
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Recherche uniquement les Docs, Slides et PDF ouverts avec Diwan."""
+    organization_id = await resolve_organization(identity)
+    result = await search_google_drive(
+        organization_id, query, page_size=pageSize, page_token=pageToken
+    )
+    return _envelope(request, {"provider": GOOGLE_DRIVE, **result})
+
+
+@router.delete("/connectors/google-drive")
+async def disconnect_google_drive(
+    request: Request,
+    identity: ConsumerIdentity = Depends(scoped_identity),
+) -> Dict[str, Any]:
+    """Revoque la connexion sans supprimer les versions deja citees."""
+    organization_id = await resolve_organization(identity)
+    await revoke_connection(organization_id, GOOGLE_DRIVE)
+    return _envelope(request, {"provider": GOOGLE_DRIVE, "status": "revoked"})
+
+
+@router.post("/connectors/google-drive/imports", status_code=202)
+async def import_google_drive(
+    request: Request,
+    payload: ConnectorImportRequest,
+    identity: ConsumerIdentity = Depends(ingestion_identity),
+) -> Dict[str, Any]:
+    """Epingle les versions Google Drive choisies dans un corpus Diwan."""
+    from surreal_commands import submit_command
+
+    _check_contract(payload.contractVersion)
+    organization_id = await resolve_organization(identity)
+    existing_job = await repo_query(
+        """
+        SELECT * FROM ingestion_job
+        WHERE organization = $organization AND idempotency_key = $key LIMIT 1
+        """,
+        {
+            "organization": ensure_record_id(organization_id),
+            "key": payload.idempotencyKey,
+        },
+    )
+    if existing_job:
+        job = existing_job[0]
+        return _envelope(
+            request,
+            {
+                "jobId": _as_str(job["id"]),
+                "corpusId": _as_str(job.get("corpus")),
+                "status": job.get("status", "queued"),
+                "submittedSources": job.get("submitted_sources", 0),
+                "pollAfterSeconds": POLL_AFTER_SECONDS,
+            },
+        )
+
+    if payload.corpusId:
+        corpus = await get_corpus_or_fail(organization_id, payload.corpusId)
+    else:
+        corpus = await create_corpus(
+            organization_id, (payload.corpusName or "Google Drive").strip()
+        )
+    corpus_id = _as_str(corpus["id"])
+    documents = [
+        await load_google_drive_document(organization_id, external_id)
+        for external_id in dict.fromkeys(payload.externalIds)
+    ]
+    if len(documents) != len(payload.externalIds):
+        raise ConsumerAPIError(
+            INVALID_REQUEST, message="Chaque identifiant externe doit etre unique."
+        )
+
+    job_rows = await repo_query(
+        """
+        CREATE ingestion_job SET
+            consumer = (SELECT VALUE id FROM consumer WHERE name = $consumer LIMIT 1)[0],
+            organization = $organization,
+            corpus = $corpus,
+            idempotency_key = $key,
+            status = 'queued',
+            submitted_sources = $count,
+            request_id = $request_id
+        """,
+        {
+            "consumer": identity.consumer_id,
+            "organization": ensure_record_id(organization_id),
+            "corpus": ensure_record_id(corpus_id),
+            "key": payload.idempotencyKey,
+            "count": len(documents),
+            "request_id": _request_id(request),
+        },
+    )
+    job_id = _as_str(job_rows[0]["id"])
+    queued = 0
+
+    for document in documents:
+        media_type = validate_upload(document.filename, document.payload)
+        checksum = sha256_of(document.payload)
+        stored = store_original(document.payload, checksum, media_type)
+        previous = await repo_query(
+            """
+            SELECT * FROM source_version
+            WHERE external_connection = $connection
+                AND external_provider = $provider
+                AND external_id = $external_id
+            ORDER BY version DESC LIMIT 1
+            """,
+            {
+                "connection": ensure_record_id(document.connection_id),
+                "provider": GOOGLE_DRIVE,
+                "external_id": document.external_id,
+            },
+        )
+        reused = next(
+            (
+                row
+                for row in previous
+                if row.get("external_version") == document.provider_version
+                and row.get("checksum_sha256") == checksum
+                and row.get("status") == "ready"
+            ),
+            None,
+        )
+        if reused:
+            version_id = _as_str(reused["id"])
+            item_status = "ready"
+        else:
+            source_id = _as_str(previous[0].get("source")) if previous else ""
+            if not source_id:
+                source_rows = await repo_query(
+                    "CREATE source SET title = $title RETURN AFTER",
+                    {"title": document.title},
+                )
+                source_id = _as_str(source_rows[0]["id"])
+            version_number = int(previous[0].get("version") or 0) + 1 if previous else 1
+            version_rows = await repo_query(
+                """
+                CREATE source_version SET
+                    source = $source,
+                    version = $version,
+                    checksum_sha256 = $checksum,
+                    title = $title,
+                    original_name = $original_name,
+                    media_type = $media_type,
+                    source_type = 'google-drive',
+                    storage_path = $storage_path,
+                    external_connection = $connection,
+                    external_provider = $provider,
+                    external_id = $external_id,
+                    external_version = $external_version,
+                    external_url = $external_url,
+                    status = 'queued'
+                """,
+                {
+                    "source": ensure_record_id(source_id),
+                    "version": version_number,
+                    "checksum": checksum,
+                    "title": document.title,
+                    "original_name": document.filename,
+                    "media_type": media_type,
+                    "storage_path": stored,
+                    "connection": ensure_record_id(document.connection_id),
+                    "provider": GOOGLE_DRIVE,
+                    "external_id": document.external_id,
+                    "external_version": document.provider_version,
+                    "external_url": document.source_url,
+                },
+            )
+            version_id = _as_str(version_rows[0]["id"])
+            item_status = "queued"
+            queued += 1
+        await attach_to_corpus(corpus_id, version_id)
+        item_rows = await repo_query(
+            """
+            CREATE ingestion_item SET
+                job = $job,
+                source_version = $version,
+                original_name = $original_name,
+                source_type = 'google-drive',
+                payload_ref = $payload_ref,
+                status = $status
+            """,
+            {
+                "job": ensure_record_id(job_id),
+                "version": ensure_record_id(version_id),
+                "original_name": document.filename,
+                "payload_ref": stored,
+                "status": item_status,
+            },
+        )
+        if item_status == "queued":
+            submit_command(
+                "open_notebook",
+                "consumer_ingest_source",
+                {
+                    "version_id": version_id,
+                    "item_id": _as_str(item_rows[0]["id"]),
+                    "source_type": "upload",
+                    "payload_ref": stored,
+                    "title": document.title,
+                },
+            )
+
+    status = "queued"
+    if queued == 0:
+        status = "ready"
+        await repo_query(
+            "UPDATE $job SET status = 'ready', updated = time::now()",
+            {"job": ensure_record_id(job_id)},
+        )
+    return _envelope(
+        request,
+        {
+            "jobId": job_id,
+            "corpusId": corpus_id,
+            "status": status,
+            "submittedSources": len(documents),
+            "pollAfterSeconds": POLL_AFTER_SECONDS,
+        },
+    )
 
 
 @router.post("/ingestions", status_code=202)
@@ -385,7 +670,9 @@ async def get_ingestion(
             "sourceVersion": _as_str(item.get("version_id")),
             "originalName": item.get("original_name"),
             "status": item.get("status"),
-            "checksumSha256": f"sha256:{item['checksum']}" if item.get("checksum") else None,
+            "checksumSha256": f"sha256:{item['checksum']}"
+            if item.get("checksum")
+            else None,
             "pages": item.get("pages"),
             "chunks": item.get("chunks") or 0,
             "errorCode": item.get("error_code"),

@@ -239,6 +239,49 @@ etayees par des blocs distincts : un ecart de score vectoriel ne suffit jamais.
 Le corpus et ses rattachements sont marques revoques. Une source partagee avec
 un autre corpus y reste intacte et consultable. Rien n'est supprime en silence.
 
+### 4.9 Connecter Google Drive
+
+Le connecteur est cloisonne par organisation Qalem. Les jetons OAuth sont
+chiffres dans Diwan et ne sont jamais retournes a Qalem.
+
+1. `POST /api/v1/consumers/qalem/connectors/google-drive/authorize` renvoie une
+   `authorizationUrl` Google valable dix minutes. L'etat OAuth est aleatoire,
+   hache en base, lie a l'organisation deduite du jeton de service et utilisable
+   une seule fois. Le flux utilise PKCE.
+2. Google rappelle
+   `GET /api/v1/consumers/qalem/connectors/google-drive/callback`. Diwan echange
+   le code, chiffre les credentials et redirige vers l'URL Qalem configuree.
+3. `GET /api/v1/consumers/qalem/connectors` renvoie uniquement les metadonnees
+   des connexions actives.
+4. `GET /api/v1/consumers/qalem/connectors/google-drive/search` accepte
+   `query`, `pageSize` et `pageToken`. La liste est limitee aux Google Docs,
+   Google Slides et PDF que l'application est autorisee a lire.
+5. `POST /api/v1/consumers/qalem/connectors/google-drive/imports` accepte :
+
+```json
+{
+  "externalIds": ["identifiant-drive"],
+  "corpusId": "corpus:facultatif",
+  "corpusName": "Sources du cours",
+  "idempotencyKey": "identifiant-stable-de-la-demande",
+  "contractVersion": "1.0"
+}
+```
+
+Chaque import epingle la version fournisseur et l'empreinte du contenu dans une
+`source_version` immuable. Rejouer la meme cle d'idempotence renvoie le meme job
+sans recreer de source ni consommer une nouvelle ingestion.
+
+`DELETE /api/v1/consumers/qalem/connectors/google-drive` revoque la connexion.
+Les versions deja importees et citees restent conservees ; seul l'acces futur au
+Drive est coupe.
+
+Variables requises : `DIWAN_GOOGLE_DRIVE_CLIENT_ID`,
+`DIWAN_GOOGLE_DRIVE_CLIENT_SECRET`, `DIWAN_PUBLIC_URL` et
+`DIWAN_QALEM_RETURN_URL`. L'URI de redirection enregistree chez Google doit etre
+exactement
+`https://diwan.ai-mpower.com/api/v1/consumers/qalem/connectors/google-drive/callback`.
+
 ## 5. Matrice des erreurs
 
 Toutes les erreurs suivent la meme enveloppe :
@@ -277,6 +320,10 @@ Toutes les erreurs suivent la meme enveloppe :
 | `SERVICE_BUSY` | 503 | oui | service sature |
 | `CONTRACT_VERSION_UNSUPPORTED` | 400 | non | version de contrat inconnue |
 | `INVALID_REQUEST` | 422 | non | requete invalide, liste de sources absente comprise |
+| `CONNECTION_REQUIRED` | 409 | non | fournisseur non configure, non connecte ou renouvellement impossible |
+| `OAUTH_STATE_INVALID` | 400 | non | etat OAuth inconnu, expire ou deja consomme |
+| `EXTERNAL_SOURCE_NOT_FOUND` | 404 | non | document absent, non autorise ou non telechargeable |
+| `PROVIDER_UNAVAILABLE` | 503 | oui | fournisseur externe indisponible ou reponse inexploitable |
 
 Absence de fuite d'existence : une source inexistante et une source appartenant
 a une autre organisation rendent exactement la meme reponse.

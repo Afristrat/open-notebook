@@ -1,0 +1,32 @@
+-- Migration 28: connexions documentaires externes cloisonnees par organisation.
+-- Les jetons OAuth sont chiffres avant leur ecriture et ne sont jamais exposes
+-- par le contrat consommateur. Les etats OAuth sont a usage unique et expires.
+
+DEFINE TABLE IF NOT EXISTS external_connection SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE external_connection TYPE record<external_organization>;
+DEFINE FIELD IF NOT EXISTS provider ON TABLE external_connection TYPE string;
+DEFINE FIELD IF NOT EXISTS credentials_ciphertext ON TABLE external_connection TYPE string;
+DEFINE FIELD IF NOT EXISTS provider_account_id ON TABLE external_connection TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS provider_account_name ON TABLE external_connection TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS scopes ON TABLE external_connection TYPE array<string> DEFAULT [];
+DEFINE FIELD IF NOT EXISTS revoked ON TABLE external_connection TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created ON TABLE external_connection TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE external_connection TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_external_connection_scope ON TABLE external_connection COLUMNS organization, provider UNIQUE;
+
+DEFINE TABLE IF NOT EXISTS external_oauth_state SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS state_hash ON TABLE external_oauth_state TYPE string;
+DEFINE FIELD IF NOT EXISTS organization ON TABLE external_oauth_state TYPE record<external_organization>;
+DEFINE FIELD IF NOT EXISTS provider ON TABLE external_oauth_state TYPE string;
+DEFINE FIELD IF NOT EXISTS code_verifier_ciphertext ON TABLE external_oauth_state TYPE string;
+DEFINE FIELD IF NOT EXISTS expires_at ON TABLE external_oauth_state TYPE datetime;
+DEFINE FIELD IF NOT EXISTS used ON TABLE external_oauth_state TYPE bool DEFAULT false;
+DEFINE FIELD IF NOT EXISTS created ON TABLE external_oauth_state TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_external_oauth_state_hash ON TABLE external_oauth_state FIELDS state_hash UNIQUE;
+
+DEFINE FIELD IF NOT EXISTS external_connection ON TABLE source_version TYPE option<record<external_connection>>;
+DEFINE FIELD IF NOT EXISTS external_provider ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS external_id ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS external_version ON TABLE source_version TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS external_url ON TABLE source_version TYPE option<string>;
+DEFINE INDEX IF NOT EXISTS idx_source_version_external ON TABLE source_version COLUMNS external_connection, external_id, external_version;

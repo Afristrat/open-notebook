@@ -1,0 +1,11 @@
+-- Annulation de la migration 28.
+
+REMOVE INDEX IF EXISTS idx_source_version_external ON TABLE source_version;
+REMOVE FIELD IF EXISTS external_url ON TABLE source_version;
+REMOVE FIELD IF EXISTS external_version ON TABLE source_version;
+REMOVE FIELD IF EXISTS external_id ON TABLE source_version;
+REMOVE FIELD IF EXISTS external_provider ON TABLE source_version;
+REMOVE FIELD IF EXISTS external_connection ON TABLE source_version;
+
+REMOVE TABLE IF EXISTS external_oauth_state;
+REMOVE TABLE IF EXISTS external_connection;
