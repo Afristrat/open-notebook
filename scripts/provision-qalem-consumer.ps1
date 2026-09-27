@@ -93,7 +93,10 @@ function Get-HttpStatus {
         return 200
     }
     catch {
-        return if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { 0 }
+        if ($_.Exception.Response) {
+            return [int]$_.Exception.Response.StatusCode
+        }
+        return 0
     }
 }
 
