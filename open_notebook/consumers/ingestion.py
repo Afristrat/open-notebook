@@ -302,10 +302,11 @@ async def next_version_number(checksum_source_id: Optional[str]) -> int:
     if not checksum_source_id:
         return 1
     rows = await repo_query(
-        "SELECT VALUE math::max(version) FROM source_version WHERE source = $source GROUP ALL",
+        "SELECT math::max(version) AS max_version FROM source_version "
+        "WHERE source = $source GROUP ALL",
         {"source": ensure_record_id(checksum_source_id)},
     )
-    current = rows[0] if rows else None
+    current = rows[0].get("max_version") if rows else None
     return int(current or 0) + 1
 
 

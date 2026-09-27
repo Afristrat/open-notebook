@@ -60,6 +60,7 @@ export function ModelSelector({
     return languageModels.find(model => model.id === defaults.default_chat_model)
   }, [defaults?.default_chat_model, languageModels])
 
+  const defaultLabel = t('common.default')
   const currentModelName = useMemo(() => {
     if (currentModel) {
       return languageModels.find(model => model.id === currentModel)?.name || currentModel
@@ -67,8 +68,8 @@ export function ModelSelector({
     if (defaultModel) {
       return defaultModel.name
     }
-    return t('common.default')
-  }, [currentModel, languageModels, defaultModel, t('common.default')])
+    return defaultLabel
+  }, [currentModel, languageModels, defaultModel, defaultLabel])
 
   const handleSave = () => {
     onModelChange(selectedModel === 'default' ? undefined : selectedModel)
@@ -117,8 +118,8 @@ export function ModelSelector({
                 <SelectItem value="default">
                   <div className="flex items-center justify-between w-full">
                     <span>
-                      {defaultModel 
-                        ? `${t('common.default')} (${defaultModel.name})` 
+                      {defaultModel
+                        ? `${defaultLabel} (${defaultModel.name})`
                         : t('transformations.systemDefault')}
                     </span>
                     {defaultModel?.provider && (

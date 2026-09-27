@@ -1,9 +1,7 @@
 import type { Metadata } from "next";
-import {
-  Bricolage_Grotesque,
-  Instrument_Sans,
-  Spline_Sans_Mono,
-} from "next/font/google";
+import { Bricolage_Grotesque } from "next/font/google";
+import { Instrument_Sans } from "next/font/google";
+import { Spline_Sans_Mono } from "next/font/google";
 import "./globals.css";
 import "katex/dist/katex.min.css";
 import { Toaster } from "@/components/ui/sonner";
