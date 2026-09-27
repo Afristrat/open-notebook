@@ -33,7 +33,7 @@ YOUTUBE_PREFERRED_LANGUAGES = [
 ]
 
 
-class SourceState(TypedDict):
+class SourceState(TypedDict, total=False):
     # Input describing what to extract: url / file_path / content / delete_source.
     content_state: Dict[str, Any]
     # Result of content-core extraction (does NOT echo url/file_path back).

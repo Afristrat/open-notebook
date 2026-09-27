@@ -211,8 +211,9 @@ export function useTestCredential() {
     testResults,
     clearResult: (credentialId: string) => {
       setTestResults(prev => {
-        const { [credentialId]: _removed, ...rest } = prev
-        return rest
+        const next = { ...prev }
+        delete next[credentialId]
+        return next
       })
     },
   }

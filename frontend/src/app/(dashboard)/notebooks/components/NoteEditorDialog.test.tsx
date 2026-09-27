@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { NoteEditorDialog } from './NoteEditorDialog'
@@ -87,7 +87,9 @@ describe('NoteEditorDialog', () => {
 
     renderDialog({ onOpenChange })
 
-    within(screen.getByTestId('content-unavailable')).getByText('common.close').click()
+    fireEvent.click(
+      within(screen.getByTestId('content-unavailable')).getByText('common.close')
+    )
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
