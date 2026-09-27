@@ -246,6 +246,7 @@ app.add_middleware(
         "/redoc",
         "/api/auth/status",
         "/api/config",
+        "/api/v1/consumers/qalem/connectors/google-drive/callback",
     ],
 )
 

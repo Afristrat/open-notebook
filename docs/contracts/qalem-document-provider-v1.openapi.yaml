@@ -11,6 +11,80 @@ servers:
 security:
   - serviceToken: []
 paths:
+  /api/v1/consumers/qalem/connectors:
+    get:
+      summary: Lister les connexions documentaires actives du tenant
+      responses:
+        "200":
+          description: Metadonnees des connexions, sans credential
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectorList" }
+        "401": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/google-drive/authorize:
+    post:
+      summary: Commencer l'autorisation Google Drive avec PKCE
+      responses:
+        "200":
+          description: URL d'autorisation temporaire
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectorAuthorization" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/google-drive/callback:
+    get:
+      summary: Terminer l'autorisation Google Drive
+      security: []
+      parameters:
+        - { in: query, name: code, required: true, schema: { type: string } }
+        - { in: query, name: state, required: true, schema: { type: string } }
+      responses:
+        "303": { description: Redirection vers Qalem }
+        "400": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/google-drive/search:
+    get:
+      summary: Rechercher les Google Docs, Slides et PDF autorises
+      parameters:
+        - { in: query, name: query, schema: { type: string, maxLength: 300 } }
+        - { in: query, name: pageSize, schema: { type: integer, default: 20, maximum: 100 } }
+        - { in: query, name: pageToken, schema: { type: string } }
+      responses:
+        "200":
+          description: Documents Google Drive accessibles
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExternalSourceList" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/google-drive/imports:
+    post:
+      summary: Importer des versions immuables depuis Google Drive
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectorImport" }
+      responses:
+        "202":
+          description: Import accepte ou job idempotent existant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IngestionAccepted" }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "404": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
+        "422": { $ref: "#/components/responses/Erreur" }
+        "503": { $ref: "#/components/responses/Erreur" }
+  /api/v1/consumers/qalem/connectors/google-drive:
+    delete:
+      summary: Revoquer la connexion Google Drive du tenant
+      responses:
+        "200": { description: Connexion revoquee }
+        "401": { $ref: "#/components/responses/Erreur" }
+        "409": { $ref: "#/components/responses/Erreur" }
   /api/v1/consumers/qalem/ingestions:
     post:
       summary: Importer une ou plusieurs sources
@@ -264,6 +338,10 @@ components:
                 - SERVICE_BUSY
                 - CONTRACT_VERSION_UNSUPPORTED
                 - INVALID_REQUEST
+                - CONNECTION_REQUIRED
+                - OAUTH_STATE_INVALID
+                - EXTERNAL_SOURCE_NOT_FOUND
+                - PROVIDER_UNAVAILABLE
             message: { type: string }
             retryable: { type: boolean }
             details: { type: object }
@@ -277,6 +355,64 @@ components:
         status: { type: string }
         submittedSources: { type: integer }
         pollAfterSeconds: { type: integer }
+    ConnectorList:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        connections:
+          type: array
+          items:
+            type: object
+            properties:
+              connectionId: { type: string }
+              provider: { type: string, enum: [google-drive] }
+              accountLabel: { type: [string, "null"] }
+              scopes: { type: array, items: { type: string } }
+              createdAt: { type: string }
+              updatedAt: { type: string }
+    ConnectorAuthorization:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        provider: { type: string, enum: [google-drive] }
+        authorizationUrl: { type: string, format: uri }
+        expiresInSeconds: { type: integer }
+    ExternalSourceList:
+      type: object
+      properties:
+        contractVersion: { type: string }
+        requestId: { type: string }
+        provider: { type: string, enum: [google-drive] }
+        nextPageToken: { type: [string, "null"] }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              externalId: { type: string }
+              title: { type: string }
+              mediaType: { type: string }
+              modifiedAt: { type: [string, "null"] }
+              providerVersion: { type: string }
+              sourceUrl: { type: [string, "null"] }
+              downloadAllowed: { type: boolean }
+              size: { type: [integer, "null"] }
+    ConnectorImport:
+      type: object
+      required: [externalIds, idempotencyKey]
+      properties:
+        externalIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items: { type: string }
+        corpusId: { type: string }
+        corpusName: { type: string }
+        idempotencyKey: { type: string }
+        contractVersion: { type: string }
     IngestionStatus:
       type: object
       properties:
