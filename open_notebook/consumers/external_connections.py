@@ -79,10 +79,15 @@ def _callback_url(provider: str) -> str:
     return f"{base}/api/v1/consumers/qalem/connectors/{provider}/callback"
 
 
-def connector_return_url(provider: str, status: str) -> str:
+def connector_return_url(
+    provider: str, status: str, organization_external_id: Optional[str] = None
+) -> str:
     base = _required_env("DIWAN_QALEM_RETURN_URL")
     separator = "&" if "?" in base else "?"
-    return f"{base}{separator}{urlencode({'connector': provider, 'status': status})}"
+    params = {"connector": provider, "status": status}
+    if organization_external_id:
+        params["orgId"] = organization_external_id
+    return f"{base}{separator}{urlencode(params)}"
 
 
 def _state_digest(state: str) -> str:
@@ -204,7 +209,7 @@ async def _existing_credentials(
     return {"row": row, "credentials": credentials}
 
 
-async def complete_google_drive_authorization(code: str, state: str) -> None:
+async def complete_google_drive_authorization(code: str, state: str) -> str:
     oauth_state = await _consume_oauth_state(GOOGLE_DRIVE, state)
     organization_id = str(oauth_state["organization"])
     verifier = decrypt_value(str(oauth_state["code_verifier_ciphertext"]))
@@ -287,6 +292,13 @@ async def complete_google_drive_authorization(code: str, state: str) -> None:
                 "scopes": scopes,
             },
         )
+    external_ids = await repo_query(
+        "SELECT VALUE external_id FROM $organization LIMIT 1",
+        {"organization": ensure_record_id(organization_id)},
+    )
+    if not external_ids or not str(external_ids[0]).strip():
+        raise ConsumerAPIError(CONNECTION_REQUIRED)
+    return str(external_ids[0])
 
 
 async def connection_metadata(organization_id: str) -> List[Dict[str, Any]]:
