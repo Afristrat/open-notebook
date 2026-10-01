@@ -31,6 +31,11 @@ from loguru import logger
 MIN_WORDS = 1100
 MAX_WORDS = 2000
 
+# Ouverture : chaque intervenant doit avoir été nommé ET avoir pris la parole dans
+# ces premières répliques (retour d'écoute d'Amine, 2026-10-01 : l'épisode entrait
+# dans les faits sans présenter les profils qui débattent). 0 désactive le contrôle.
+INTRO_LINES = 10
+
 MARKER = "[CONTRÔLE VEILLE]"
 SOURCES_DELIMITER = "=== SOURCES INGÉRÉES ==="
 DATE_LINE_PREFIX = "date de la veille :"
@@ -154,9 +159,26 @@ def check_transcript(
     extra_allowed: str = "",
     speaker_names: Iterable[str] = (),
     word_range: Optional[Sequence[int]] = None,
+    speakers: Optional[Sequence[str]] = None,
+    intro_lines: int = 0,
 ) -> GuardReport:
-    """Confronte chaque réplique au corpus des sources, et la longueur à la fourchette."""
+    """Confronte chaque réplique au corpus des sources, la longueur à la fourchette,
+    et l'ouverture à la présentation des intervenants."""
     report = GuardReport()
+    if intro_lines and speakers is not None:
+        opening = _fold(" ".join(lines[:intro_lines]))
+        spoke = {_fold(s) for s in speakers[:intro_lines]}
+        for name in speaker_names:
+            folded = _fold(name)
+            if not re.search(rf"\b{re.escape(folded)}\b", opening) or folded not in spoke:
+                report.violations.append(
+                    GuardIssue(
+                        0,
+                        "presentation_absente",
+                        f"{name} n'est pas présenté et n'a pas pris la parole "
+                        f"dans les {intro_lines} premières répliques",
+                    )
+                )
     if word_range is not None:
         total = sum(len(line.split()) for line in lines)
         low, high = word_range
@@ -222,6 +244,8 @@ async def content_guard_node(
         extra_allowed=allowed_dates(state.get("content")),
         speaker_names=names,
         word_range=(MIN_WORDS, MAX_WORDS),
+        speakers=[getattr(d, "speaker", "") for d in transcript],
+        intro_lines=INTRO_LINES,
     )
 
     output_dir = state.get("output_dir")

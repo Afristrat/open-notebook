@@ -164,11 +164,42 @@ class TestLength:
             await cg.content_guard_node(state)
 
 
+class TestOpening:
+    NAMES = ["Rim", "Khalid", "Tariq"]
+
+    def run(self, lines, speakers):
+        return cg.check_transcript(
+            lines, "texte", speaker_names=self.NAMES, speakers=speakers, intro_lines=10
+        )
+
+    def test_opening_that_presents_everyone_is_accepted(self):
+        lines = [
+            "Bonjour, ici Rim, et aujourd'hui une question qui dérange.",
+            "Moi c'est Khalid, je vous donne les faits et les sources.",
+            "Et moi Tariq, je pose les questions du terrain au Maroc.",
+        ]
+        assert self.run(lines, ["Rim", "Khalid", "Tariq"]).violations == []
+
+    def test_opening_that_dives_into_the_facts_is_refused(self):
+        lines = ["Un essai randomisé a été mené en Suisse.", "Les agents ignoraient leur bras."]
+        report = self.run(lines, ["Rim", "Khalid"])
+        assert [v.kind for v in report.violations] == ["presentation_absente"] * 3
+
+    def test_a_speaker_named_but_silent_in_the_opening_is_refused(self):
+        lines = ["Rim ici, avec Khalid et Tariq.", "Khalid, les faits ?"]
+        report = self.run(lines, ["Rim", "Khalid"])
+        assert [v.detail.split(" ")[0] for v in report.violations] == ["Tariq"]
+
+    def test_the_opening_check_is_off_without_intro_lines(self):
+        assert cg.check_transcript(["Direct aux faits."], "texte", speaker_names=["Rim"]).violations == []
+
+
 class TestGuardNode:
     @pytest.fixture(autouse=True)
     def _wide_word_range(self, monkeypatch):
         monkeypatch.setattr(cg, "MIN_WORDS", 1)
         monkeypatch.setattr(cg, "MAX_WORDS", 100000)
+        monkeypatch.setattr(cg, "INTRO_LINES", 0)
 
     @pytest.mark.asyncio
     async def test_without_marker_the_guard_is_inactive(self, tmp_path):
