@@ -52,6 +52,10 @@ def _env_number(name: str, default: float) -> float:
     return value if value >= 0 else default
 
 
+def _clip_path(output_dir: Any, index: int) -> Path:
+    return Path(output_dir) / "clips" / f"{index:04d}.mp3"
+
+
 def _is_valid_clip(path: Path) -> bool:
     return path.exists() and path.stat().st_size >= MIN_CLIP_BYTES
 
@@ -76,7 +80,7 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
     """Produit un clip, ou le reprend s'il existe déjà. Lève si tous les essais échouent."""
     dialogue = dialogue_info["dialogue"]
     index = dialogue_info["index"]
-    clip_path = Path(dialogue_info["output_dir"]) / "clips" / f"{index:04d}.mp3"
+    clip_path = _clip_path(dialogue_info["output_dir"], index)
 
     if _is_valid_clip(clip_path):
         logger.info(f"[audio] clip {index:04d} déjà produit, repris tel quel")
@@ -160,6 +164,7 @@ async def resilient_generate_all_audio_node(
 
     for start in range(0, total, batch_size):
         indices = range(start, min(start + batch_size, total))
+        all_reused = all(_is_valid_clip(_clip_path(output_dir, i)) for i in indices)
         results = await asyncio.gather(
             *[synthesize_clip_resilient(clip_info(i)) for i in indices],
             return_exceptions=True,
@@ -171,7 +176,8 @@ async def resilient_generate_all_audio_node(
                 clips[index] = result
         if len(failures) > max_failed:
             break
-        if start + batch_size < total:
+        # Pause entre lots pour ménager le moteur, inutile quand rien n'a été appelé.
+        if start + batch_size < total and not all_reused:
             await asyncio.sleep(1)
 
     if failures:

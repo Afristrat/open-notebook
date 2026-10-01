@@ -160,6 +160,17 @@ class TestResilientAudioNode:
             await ra.resilient_generate_all_audio_node(state)
 
 
+class TestGraphInstall:
+    def test_graph_compiles_with_the_guard_and_the_resilient_audio_nodes(self):
+        import podcast_creator.graph as pcg
+
+        from open_notebook.podcasts import vocalization
+
+        assert vocalization.ensure_vocalization_installed() is True
+        nodes = set(pcg.graph.get_graph().nodes)
+        assert {"vocalize_transcript", "content_guard", "generate_all_audio"} <= nodes
+
+
 class TestResume:
     @pytest.mark.asyncio
     async def test_resume_requires_the_transcript(self, tmp_path):

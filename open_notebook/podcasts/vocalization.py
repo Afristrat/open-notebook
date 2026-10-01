@@ -266,6 +266,7 @@ def ensure_vocalization_installed() -> bool:
         )
         from podcast_creator.state import PodcastState
 
+        from open_notebook.podcasts.content_guard import content_guard_node
         from open_notebook.podcasts.resilient_audio import (
             resilient_generate_all_audio_node,
         )
@@ -274,6 +275,9 @@ def ensure_vocalization_installed() -> bool:
         workflow.add_node("generate_outline", generate_outline_node)
         workflow.add_node("generate_transcript", generate_transcript_node)
         workflow.add_node("vocalize_transcript", vocalize_transcript_node)
+        # Contrôle de contenu : actif seulement si le briefing porte son marqueur,
+        # il échoue AVANT la voix quand la transcription s'écarte des sources.
+        workflow.add_node("content_guard", content_guard_node)
         # Même nom de nœud que la librairie (le routage conditionnel le vise),
         # mais reprise au clip et texte normalisé : voir resilient_audio.py.
         workflow.add_node("generate_all_audio", resilient_generate_all_audio_node)
@@ -282,8 +286,9 @@ def ensure_vocalization_installed() -> bool:
         workflow.add_edge(START, "generate_outline")
         workflow.add_edge("generate_outline", "generate_transcript")
         workflow.add_edge("generate_transcript", "vocalize_transcript")
+        workflow.add_edge("vocalize_transcript", "content_guard")
         workflow.add_conditional_edges(
-            "vocalize_transcript", route_audio_generation, ["generate_all_audio"]
+            "content_guard", route_audio_generation, ["generate_all_audio"]
         )
         workflow.add_edge("generate_all_audio", "combine_audio")
         workflow.add_edge("combine_audio", END)
