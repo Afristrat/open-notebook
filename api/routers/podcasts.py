@@ -413,21 +413,31 @@ async def stream_podcast_episode_audio(episode_id: str):
 
 @router.post("/podcasts/episodes/{episode_id}/retry")
 async def retry_podcast_episode(episode_id: str):
-    """Retry a failed podcast episode.
+    """Retry a failed podcast episode, or re-check the clips of a completed one.
 
     When the transcript already exists on disk, the episode is kept and the new
-    job resumes at the audio stage (only missing clips are redone). Otherwise the
-    failed episode is deleted and a new job is submitted.
+    job resumes at the audio stage (missing or defective clips are redone, the
+    others are reused). A completed episode can only be resumed this way: it is
+    never deleted and regenerated. Otherwise a failed episode is deleted and a
+    new job is submitted.
     """
     try:
         episode = await PodcastService.get_episode(episode_id)
 
-        # Validate episode is in a failed state
+        can_resume = bool(
+            episode.output_dir
+            and (Path(episode.output_dir) / "transcript.json").exists()
+        )
+
+        # Validate episode is in a failed state (or completed and resumable)
         detail = await episode.get_job_detail()
-        if detail["status"] not in ("failed", "error"):
+        status = detail["status"]
+        if status not in ("failed", "error") and not (
+            status == "completed" and can_resume
+        ):
             raise HTTPException(
                 status_code=400,
-                detail=f"Episode is not in a failed state (current: {detail['status']})",
+                detail=f"Episode is not in a failed state (current: {status})",
             )
 
         # Extract params for re-submission
@@ -442,10 +452,7 @@ async def retry_podcast_episode(episode_id: str):
                 detail="Cannot retry: episode or speaker profile name missing from stored data",
             )
 
-        if (
-            episode.output_dir
-            and (Path(episode.output_dir) / "transcript.json").exists()
-        ):
+        if can_resume:
             job_id = await PodcastService.submit_generation_job(
                 episode_profile_name=ep_profile_name,
                 speaker_profile_name=sp_profile_name,
