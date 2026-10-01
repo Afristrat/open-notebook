@@ -19,6 +19,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -114,7 +115,17 @@ def _fold(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
-def _canonical_numbers(text: str, comma_is_thousands: bool) -> str:
+# Échelles écrites après un chiffre : « 3 billion » (anglais) = « 3 milliards » = 3 000 000 000.
+_SCALES = (
+    (re.compile(r"(\d+(?:\.\d+)?)\s?(?:billion|milliards?)\b", re.I), 10**9),
+    (re.compile(r"(\d+(?:\.\d+)?)\s?(?:millions?)\b", re.I), 10**6),
+    (re.compile(r"(\d+(?:\.\d+)?)\s?(?:thousand|mille)\b", re.I), 1000),
+)
+
+
+def _canonical_numbers(
+    text: str, comma_is_thousands: bool, expand_scales: bool = False
+) -> str:
     """Rend les nombres comparables : « 150 000 », « 150,000 » et « 150k » → 150000.
 
     La virgule est ambiguë : séparateur de milliers en anglais (« 2,000 »), décimale
@@ -126,21 +137,32 @@ def _canonical_numbers(text: str, comma_is_thousands: bool) -> str:
         text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
     else:
         text = re.sub(r"(?<=\d),(?=\d)", ".", text)
-    return re.sub(
+    text = re.sub(
         r"(\d+(?:\.\d+)?)\s?[kK]\b",
         lambda match: str(int(float(match.group(1)) * 1000)),
         text,
     )
+    if expand_scales:
+        for pattern, factor in _SCALES:
+            text = pattern.sub(partial(_scaled, factor=factor), text)
+    return text
+
+
+def _scaled(match: "re.Match[str]", factor: int) -> str:
+    return str(int(float(match.group(1)) * factor))
 
 
 def _normalize_number(token: str) -> str:
     return token.rstrip("0").rstrip(".") if "." in token else token
 
 
-def _numbers(text: str, comma_is_thousands: bool = False) -> Dict[str, bool]:
+def _numbers(
+    text: str, comma_is_thousands: bool = False, expand_scales: bool = False
+) -> Dict[str, bool]:
     """Nombres du texte (forme canonique) → vrai s'ils doivent être contrôlés."""
     found: Dict[str, bool] = {}
-    for match in _NUMBER.finditer(_canonical_numbers(text, comma_is_thousands)):
+    canonical = _canonical_numbers(text, comma_is_thousands, expand_scales)
+    for match in _NUMBER.finditer(canonical):
         token = _normalize_number(match.group(1))
         has_unit = bool(match.group(2))
         checked = has_unit or "." in token or len(token) >= 2
@@ -154,12 +176,20 @@ def french_numbers(text: str) -> List[Tuple[int, bool]]:
     « quatre mille » → 4000, « quatre-vingt-seize » → 96, « deux mille vingt-six »
     → 2026, « vingt pour cent » → (20, True).
     """
-    tokens = re.findall(r"[a-z]+", _fold(text))
+    tokens = re.findall(r"[a-z]+|\d+", _fold(text))
     found: List[Tuple[int, bool]] = []
     i = 0
     while i < len(tokens):
         if tokens[i] not in _NUMBER_WORDS:
             i += 1
+            continue
+        # Un mot d'échelle collé à un chiffre (« 3 milliards », « 5 pour cent ») est
+        # déjà lu par la lecture des chiffres : on ne le compte pas une seconde fois.
+        after_digit = i > 0 and tokens[i - 1].isdigit()
+        pour_cent = tokens[i] in ("cent", "cents") and tokens[i - 1 : i] == ["pour"]
+        if after_digit or pour_cent:
+            while i < len(tokens) and tokens[i] in _NUMBER_WORDS:
+                i += 1
             continue
         total = current = 0
         while i < len(tokens):
@@ -265,11 +295,10 @@ def check_transcript(
                 )
             )
     corpus_folded = _fold(corpus)
-    allowed_numbers = (
-        set(_numbers(corpus, True))
-        | set(_numbers(corpus, False))
-        | set(_numbers(extra_allowed))
-    )
+    allowed_numbers = set(_numbers(extra_allowed))
+    for comma_is_thousands in (True, False):
+        for expand_scales in (True, False):
+            allowed_numbers |= set(_numbers(corpus, comma_is_thousands, expand_scales))
     corpus_words = set(re.findall(r"[\w'-]+", corpus_folded))
     names = {_fold(n) for n in speaker_names}
 
@@ -286,7 +315,7 @@ def check_transcript(
                     GuardIssue(index, "terme_commercial", f"« {label} » absent des sources")
                 )
 
-        for token, checked in _numbers(line).items():
+        for token, checked in _numbers(line, False, True).items():
             if checked and token not in allowed_numbers:
                 report.violations.append(
                     GuardIssue(index, "nombre_absent", f"{token} absent des sources")

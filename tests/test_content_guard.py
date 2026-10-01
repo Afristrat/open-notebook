@@ -164,6 +164,28 @@ class TestLength:
             await cg.content_guard_node(state)
 
 
+class TestScales:
+    CORPUS = "funding of up to 150,000 USD, equivalent to about 3 billion VND; 2 million users"
+
+    def test_billion_in_english_matches_milliards_in_french(self):
+        for line in ("Plafonné à 3 milliards de dongs.", "Plafonné à trois milliards de dongs."):
+            assert cg.check_transcript([line], self.CORPUS).violations == [], line
+
+    def test_million_matches_digits_and_words(self):
+        for line in ("Deux millions d'utilisateurs.", "2 millions d'utilisateurs."):
+            assert cg.check_transcript([line], self.CORPUS).violations == [], line
+
+    def test_a_scale_word_after_a_digit_is_not_counted_twice(self):
+        assert cg.french_numbers("Plafonné à 3 milliards, soit 5 pour cent.") == []
+
+    def test_a_number_after_pour_is_still_read(self):
+        assert cg.french_numbers("pour deux mille dossiers") == [(2000, False)]
+
+    def test_another_scale_value_is_still_a_violation(self):
+        report = cg.check_transcript(["Plafonné à cinq milliards de dongs."], self.CORPUS)
+        assert any(v.kind == "nombre_absent" for v in report.violations)
+
+
 class TestSpelledNumbers:
     def test_parses_french_number_words(self):
         assert cg.french_numbers("quatre mille agents") == [(4000, False)]
