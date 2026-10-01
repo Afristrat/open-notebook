@@ -25,28 +25,38 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
+# Fourchette de mots pour 8 à 12 minutes de voix : le moteur de voix tient 150 mots
+# par minute sur répliques courtes et 177 sur répliques longues (mesuré le
+# 2026-10-01 sur deux épisodes terminés), soit environ 1 100 à 2 000 mots.
+MIN_WORDS = 1100
+MAX_WORDS = 2000
+
 MARKER = "[CONTRÔLE VEILLE]"
 SOURCES_DELIMITER = "=== SOURCES INGÉRÉES ==="
 DATE_LINE_PREFIX = "date de la veille :"
 
-# Termes commerciaux interdits, sauf s'ils figurent dans une source.
+# Termes commerciaux interdits dans la transcription (français), sauf si une source
+# les établit : on accepte alors leur forme française OU leur équivalent anglais,
+# car les sources sont souvent en anglais (« MIT license » justifie « licence MIT »).
 _FORBIDDEN = (
-    ("prix", r"\bprix\b"),
-    ("tarif", r"\btarif(?:s|ication)?\b"),
-    ("licence", r"\blicences?\b"),
-    ("appel d'offres", r"\bappels? d'offres?\b"),
-    ("canal de vente", r"\bcanau(?:x|l) de vente\b"),
-    ("modèle de revenus", r"\bmodeles? de revenus?\b"),
-    ("go-to-market", r"\bgo[- ]to[- ]market\b"),
-    ("pricing", r"\bpricing\b"),
-    ("abonnement", r"\babonnements?\b"),
-    ("revendeur", r"\brevendeurs?\b"),
-    ("rentabilité", r"\brentabilite\b"),
-    ("monétisation", r"\bmonetis\w*"),
-    ("mise sur le marché", r"\bmise sur le marche\b"),
-    ("stratégie commerciale", r"\bstrategie commerciale\b"),
+    ("prix", r"\bprix\b", r"\bprices?\b|\bpricing\b"),
+    ("tarif", r"\btarif(?:s|ication)?\b", r"\btariffs?\b|\brate card\b"),
+    ("licence", r"\blicences?\b", r"\blicen[sc](?:e|es|ed|ing)\b"),
+    ("appel d'offres", r"\bappels? d'offres?\b", r"\btenders?\b|\brequests? for proposals?\b|\brfps?\b"),
+    ("canal de vente", r"\bcanau(?:x|l) de vente\b", r"\b(?:sales|distribution) channels?\b|\bresellers?\b"),
+    ("modèle de revenus", r"\bmodeles? de revenus?\b", r"\brevenue models?\b|\bbusiness models?\b"),
+    ("go-to-market", r"\bgo[- ]to[- ]market\b", r"\bgo[- ]to[- ]market\b"),
+    ("pricing", r"\bpricing\b", r"\bpricing\b|\bprices?\b"),
+    ("abonnement", r"\babonnements?\b", r"\bsubscriptions?\b"),
+    ("revendeur", r"\brevendeurs?\b", r"\bresellers?\b"),
+    ("rentabilité", r"\brentabilite\b", r"\bprofitab\w*|\bprofit margins?\b"),
+    ("monétisation", r"\bmonetis\w*", r"\bmoneti[sz]\w*"),
+    ("mise sur le marché", r"\bmise sur le marche\b", r"\bgo[- ]to[- ]market\b|\bmarket entry\b"),
+    ("stratégie commerciale", r"\bstrategie commerciale\b", r"\b(?:commercial|sales) strateg\w*"),
 )
-_FORBIDDEN_COMPILED = tuple((label, re.compile(rx)) for label, rx in _FORBIDDEN)
+_FORBIDDEN_COMPILED = tuple(
+    (label, re.compile(fr), re.compile(en)) for label, fr, en in _FORBIDDEN
+)
 
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)(\s*(?:%|€|\$))?")
 _PROPER_NOUN = re.compile(r"(?<=[a-zàâçéèêëîïôûùüÿ,;:] )([A-ZÀÂÇÉÈÊËÎÏÔÛÙÜ][\wÀ-ÿ'-]{2,})")
@@ -83,21 +93,33 @@ def _fold(text: str) -> str:
     return "".join(c for c in decomposed if not unicodedata.combining(c))
 
 
-def _canonical_numbers(text: str) -> str:
-    """Rend les nombres comparables : « 150 000 » → 150000, « 23,2 » → 23.2."""
+def _canonical_numbers(text: str, comma_is_thousands: bool) -> str:
+    """Rend les nombres comparables : « 150 000 », « 150,000 » et « 150k » → 150000.
+
+    La virgule est ambiguë : séparateur de milliers en anglais (« 2,000 »), décimale
+    en français (« 23,2 »). Le texte des sources est lu sous les deux lectures.
+    """
     text = text.replace(" ", " ").replace(" ", " ")
     text = re.sub(r"(?<=\d) (?=\d{3}\b)", "", text)
-    return re.sub(r"(?<=\d),(?=\d)", ".", text)
+    if comma_is_thousands:
+        text = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", text)
+    else:
+        text = re.sub(r"(?<=\d),(?=\d)", ".", text)
+    return re.sub(
+        r"(\d+(?:\.\d+)?)\s?[kK]\b",
+        lambda match: str(int(float(match.group(1)) * 1000)),
+        text,
+    )
 
 
 def _normalize_number(token: str) -> str:
     return token.rstrip("0").rstrip(".") if "." in token else token
 
 
-def _numbers(text: str) -> Dict[str, bool]:
+def _numbers(text: str, comma_is_thousands: bool = False) -> Dict[str, bool]:
     """Nombres du texte (forme canonique) → vrai s'ils doivent être contrôlés."""
     found: Dict[str, bool] = {}
-    for match in _NUMBER.finditer(_canonical_numbers(text)):
+    for match in _NUMBER.finditer(_canonical_numbers(text, comma_is_thousands)):
         token = _normalize_number(match.group(1))
         has_unit = bool(match.group(2))
         checked = has_unit or "." in token or len(token) >= 2
@@ -131,19 +153,39 @@ def check_transcript(
     corpus: str,
     extra_allowed: str = "",
     speaker_names: Iterable[str] = (),
+    word_range: Optional[Sequence[int]] = None,
 ) -> GuardReport:
-    """Confronte chaque réplique au corpus des sources."""
+    """Confronte chaque réplique au corpus des sources, et la longueur à la fourchette."""
     report = GuardReport()
+    if word_range is not None:
+        total = sum(len(line.split()) for line in lines)
+        low, high = word_range
+        if not low <= total <= high:
+            report.violations.append(
+                GuardIssue(
+                    0,
+                    "duree_hors_cible",
+                    f"{total} mots (cible {low} à {high}, soit 8 à 12 minutes de voix)",
+                )
+            )
     corpus_folded = _fold(corpus)
-    allowed_numbers = set(_numbers(corpus)) | set(_numbers(extra_allowed))
+    allowed_numbers = (
+        set(_numbers(corpus, True))
+        | set(_numbers(corpus, False))
+        | set(_numbers(extra_allowed))
+    )
     corpus_words = set(re.findall(r"[\w'-]+", corpus_folded))
     names = {_fold(n) for n in speaker_names}
 
     for index, line in enumerate(lines):
         folded = _fold(line)
 
-        for label, pattern in _FORBIDDEN_COMPILED:
-            if pattern.search(folded) and not pattern.search(corpus_folded):
+        for label, pattern, english in _FORBIDDEN_COMPILED:
+            if (
+                pattern.search(folded)
+                and not pattern.search(corpus_folded)
+                and not english.search(corpus_folded)
+            ):
                 report.violations.append(
                     GuardIssue(index, "terme_commercial", f"« {label} » absent des sources")
                 )
@@ -179,6 +221,7 @@ async def content_guard_node(
         corpus,
         extra_allowed=allowed_dates(state.get("content")),
         speaker_names=names,
+        word_range=(MIN_WORDS, MAX_WORDS),
     )
 
     output_dir = state.get("output_dir")

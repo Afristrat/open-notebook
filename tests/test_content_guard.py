@@ -78,6 +78,38 @@ class TestCheckTranscript:
         assert report.warnings == []
 
 
+class TestEnglishSources:
+    """Cas réels du 2026-10-01 : sources en anglais, transcription en français."""
+
+    def test_english_thousands_separator_matches_french_spacing(self):
+        corpus = "assigned about 2,000 refugee cases; roughly 150,000 AI agents; $670,000 more"
+        report = cg.check_transcript(
+            ["Environ 2 000 dossiers, 150 000 agents, 670 000 dollars de plus."], corpus
+        )
+        assert report.violations == []
+
+    def test_k_suffix_matches_the_full_number(self):
+        report = cg.check_transcript(
+            ["Un benchmark de 87 000 échantillons."], "a benchmark comprising 87k real audio"
+        )
+        assert report.violations == []
+
+    def test_english_license_justifies_the_french_term(self):
+        corpus = "a vendor-neutral, MIT Licensed platform for enterprises"
+        report = cg.check_transcript(["Un projet sous licence MIT."], corpus)
+        assert report.violations == []
+
+    def test_a_different_number_is_still_a_violation(self):
+        report = cg.check_transcript(["Environ 3 000 dossiers."], "about 2,000 refugee cases")
+        assert ("nombre_absent", "3000 absent des sources") in kinds(report)
+
+    def test_other_commercial_terms_stay_forbidden_when_only_license_is_sourced(self):
+        report = cg.check_transcript(
+            ["Ils vendent un abonnement annuel."], "an MIT Licensed platform"
+        )
+        assert ("terme_commercial", "« abonnement » absent des sources") in kinds(report)
+
+
 class TestExtractCorpus:
     def test_returns_text_after_the_delimiter(self):
         content = f"fil conducteur\n{cg.SOURCES_DELIMITER}\ntexte des sources"
@@ -99,7 +131,45 @@ def make_state(tmp_path, briefing, lines, content):
     }
 
 
+class TestLength:
+    def test_transcript_in_range_is_accepted(self):
+        lines = ["mot " * 100] * 15
+        assert cg.check_transcript(lines, "mot", word_range=(1100, 2000)).violations == []
+
+    def test_too_long_transcript_is_a_violation(self):
+        lines = ["mot " * 100] * 43
+        report = cg.check_transcript(lines, "mot", word_range=(1100, 2000))
+        assert [v.kind for v in report.violations] == ["duree_hors_cible"]
+        assert "4300 mots" in report.violations[0].detail
+
+    def test_too_short_transcript_is_a_violation(self):
+        report = cg.check_transcript(["mot " * 50], "mot", word_range=(1100, 2000))
+        assert [v.kind for v in report.violations] == ["duree_hors_cible"]
+
+    def test_length_is_not_checked_without_a_range(self):
+        assert cg.check_transcript(["mot " * 5000], "mot").violations == []
+
+    @pytest.mark.asyncio
+    async def test_node_refuses_an_over_long_transcript_before_any_voice(self, tmp_path):
+        content = f"veille\n{cg.SOURCES_DELIMITER}\nmot"
+        state = {
+            "briefing": cg.MARKER,
+            "content": content,
+            "transcript": [SimpleNamespace(dialogue="mot " * 100) for _ in range(43)],
+            "output_dir": tmp_path,
+            "speaker_profile": SimpleNamespace(speakers=[]),
+        }
+
+        with pytest.raises(ValueError, match="aucune voix générée"):
+            await cg.content_guard_node(state)
+
+
 class TestGuardNode:
+    @pytest.fixture(autouse=True)
+    def _wide_word_range(self, monkeypatch):
+        monkeypatch.setattr(cg, "MIN_WORDS", 1)
+        monkeypatch.setattr(cg, "MAX_WORDS", 100000)
+
     @pytest.mark.asyncio
     async def test_without_marker_the_guard_is_inactive(self, tmp_path):
         state = make_state(tmp_path, "briefing sans marqueur", ["abonnement à 99 euros"], "x")
