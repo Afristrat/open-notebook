@@ -41,8 +41,13 @@ class PodcastService:
         notebook_id: Optional[str] = None,
         content: Optional[str] = None,
         briefing_suffix: Optional[str] = None,
+        resume_episode_id: Optional[str] = None,
     ) -> str:
-        """Submit a podcast generation job for background processing"""
+        """Submit a podcast generation job for background processing.
+
+        With `resume_episode_id`, the job resumes that episode at the audio
+        stage (only missing clips are redone) instead of starting a new one.
+        """
         try:
             # Validate episode profile exists
             episode_profile = await EpisodeProfile.get_by_name(episode_profile_name)
@@ -83,6 +88,7 @@ class PodcastService:
                 "episode_name": episode_name,
                 "content": str(content),
                 "briefing_suffix": briefing_suffix,
+                "resume_episode_id": resume_episode_id,
             }
 
             # Ensure command modules are imported before submitting

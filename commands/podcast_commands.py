@@ -15,6 +15,7 @@ from open_notebook.podcasts.models import (
     SpeakerProfile,
     _resolve_model_config,
 )
+from open_notebook.podcasts.resilient_audio import resume_podcast_audio
 from open_notebook.podcasts.vocalization import ensure_vocalization_installed
 from open_notebook.utils.model_utils import full_model_dump
 
@@ -51,6 +52,9 @@ class PodcastGenerationInput(CommandInput):
     episode_name: str
     content: str
     briefing_suffix: Optional[str] = None
+    # Reprise d'un épisode en échec : même épisode, même dossier, seuls les clips
+    # manquants sont refaits (plan et transcription ne sont pas régénérés).
+    resume_episode_id: Optional[str] = None
 
 
 class PodcastGenerationOutput(CommandOutput):
@@ -259,27 +263,41 @@ async def generate_podcast_command(
         # Done BEFORE persisting the episode so output_dir can be stored on the
         # record: progress tracking reads the artifacts in this directory while
         # the job is still running (outline.json -> transcript.json -> clips/).
-        episode_dir_name, output_dir = build_episode_output_dir()
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        logger.info(f"Created output directory: {output_dir}")
-
-        # Create the record for the episode and associate with the ongoing command
-        episode = PodcastEpisode(
-            name=input_data.episode_name,
-            episode_profile=full_model_dump(episode_profile.model_dump()),
-            speaker_profile=full_model_dump(speaker_profile.model_dump()),
-            command=ensure_record_id(input_data.execution_context.command_id)
+        command_ref = (
+            ensure_record_id(input_data.execution_context.command_id)
             if input_data.execution_context
-            else None,
-            briefing=briefing,
-            content=input_data.content,
-            audio_file=None,
-            transcript=None,
-            outline=None,
-            output_dir=str(output_dir),
+            else None
         )
-        await episode.save()
+        if input_data.resume_episode_id:
+            # Reprise : on rattache l'épisode existant au nouveau job.
+            episode = await PodcastEpisode.get(input_data.resume_episode_id)
+            if not episode.output_dir:
+                raise ValueError("Épisode non reprenable : dossier de sortie inconnu")
+            output_dir = Path(episode.output_dir)
+            episode_dir_name = output_dir.name
+            episode.command = command_ref
+            await episode.save()
+            logger.info(f"Resuming episode {episode.id} in {output_dir}")
+        else:
+            episode_dir_name, output_dir = build_episode_output_dir()
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            logger.info(f"Created output directory: {output_dir}")
+
+            # Create the record for the episode and associate with the ongoing command
+            episode = PodcastEpisode(
+                name=input_data.episode_name,
+                episode_profile=full_model_dump(episode_profile.model_dump()),
+                speaker_profile=full_model_dump(speaker_profile.model_dump()),
+                command=command_ref,
+                briefing=briefing,
+                content=input_data.content,
+                audio_file=None,
+                transcript=None,
+                outline=None,
+                output_dir=str(output_dir),
+            )
+            await episode.save()
 
         # SECURITY NOTE for future work: podcast_creator also supports
         # configure("templates", {...}), which compiles the given string
@@ -307,14 +325,19 @@ async def generate_podcast_command(
         # 8. Generate podcast using podcast-creator
         logger.info("Starting podcast generation with podcast-creator...")
 
-        result = await create_podcast(
-            content=input_data.content,
-            briefing=briefing,
-            episode_name=episode_dir_name,
-            output_dir=str(output_dir),
-            speaker_config=speaker_profile.name,
-            episode_profile=episode_profile.name,
-        )
+        if input_data.resume_episode_id:
+            result = await resume_podcast_audio(
+                output_dir, episode_dir_name, speaker_profile.name
+            )
+        else:
+            result = await create_podcast(
+                content=input_data.content,
+                briefing=briefing,
+                episode_name=episode_dir_name,
+                output_dir=str(output_dir),
+                speaker_config=speaker_profile.name,
+                episode_profile=episode_profile.name,
+            )
 
         # podcast-creator reports audio-combination failures IN-BAND: on
         # ffmpeg/clip errors combine_audio_files() returns an "ERROR: ..."
@@ -339,7 +362,10 @@ async def generate_podcast_command(
         episode.transcript = {
             "transcript": full_model_dump(result["transcript"]) if result else None
         }
-        episode.outline = full_model_dump(result["outline"]) if result else None
+        if result and result.get("outline"):
+            episode.outline = full_model_dump(result["outline"])
+        elif not input_data.resume_episode_id:
+            episode.outline = None
         await episode.save()
 
         if audio_error:

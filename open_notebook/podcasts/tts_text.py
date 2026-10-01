@@ -1,0 +1,91 @@
+"""Normalisation du texte envoyé au moteur de voix.
+
+Constat mesuré le 2026-10-01 sur le moteur de voix de production (appels
+séquentiels depuis le conteneur Diwan, mêmes identifiants que les jobs) : une
+phrase de moins de 7 caractères (« Oui. », « Non. », « Hmm. ») provoque un
+HTTP 500 systématique, y compris quand elle ouvre ou ponctue une réplique
+longue (« Oui. L'humain reste décideur. » : 0 réussite sur 6 ; la même phrase
+avec une virgule : 6 sur 6). À partir de 7 caractères, les phrases passent.
+
+La correction est donc déterministe et se fait en amont : fusionner les phrases
+trop courtes avec leur voisine, au lieu de réessayer le même texte.
+"""
+
+import re
+from typing import List
+
+# Seuil mesuré : « Ah oui. » (7 caractères) passe, « Oui. » (4) échoue.
+MIN_SENTENCE_CHARS = 7
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
+_TERMINAL_PUNCTUATION = re.compile(r"\s*[.!?…]+\s*$")
+
+# Abréviations courtes légitimes : les fusionner changerait le sens (« M, Dupont »).
+_ABBREVIATIONS = frozenset(
+    {"m.", "mme.", "mlle.", "dr.", "pr.", "st.", "ste.", "me.", "mr.", "cie.", "etc."}
+)
+
+
+def _is_too_short(sentence: str) -> bool:
+    return (
+        len(sentence) < MIN_SENTENCE_CHARS
+        and sentence.lower() not in _ABBREVIATIONS
+    )
+
+
+def _soften(sentence: str) -> str:
+    """Remplace la ponctuation finale par une virgule (« Oui. » devient « Oui, »)."""
+    return _TERMINAL_PUNCTUATION.sub(",", sentence)
+
+
+def _lower_first(sentence: str) -> str:
+    return sentence[:1].lower() + sentence[1:]
+
+
+def normalize_for_tts(text: str) -> str:
+    """Fusionne chaque phrase trop courte avec la phrase suivante (ou précédente).
+
+    Le texte d'une réplique d'une seule phrase est rendu tel quel : c'est
+    `tts_text_variants` qui s'en occupe.
+    """
+    sentences = _SENTENCE_SPLIT.split(text.strip())
+    if len(sentences) < 2:
+        return text
+
+    merged: List[str] = []
+    prefix = ""
+    last = len(sentences) - 1
+    for position, raw in enumerate(sentences):
+        sentence = f"{prefix} {raw}".strip() if prefix else raw
+        prefix = ""
+        if _is_too_short(sentence):
+            if position < last:
+                prefix = _soften(sentence)
+                continue
+            if merged:
+                merged[-1] = f"{_soften(merged[-1])} {_lower_first(sentence)}"
+                continue
+        merged.append(sentence)
+    return " ".join(merged) if merged else text
+
+
+def pad_short(text: str) -> str:
+    """Dernier recours pour une réplique entière trop courte : « Oui. » → « Ah oui. »."""
+    stripped = text.strip()
+    if len(stripped) >= MIN_SENTENCE_CHARS:
+        return text
+    word = re.sub(r"[\s.!?…,;:]+$", "", stripped)
+    if not word:
+        return text
+    tail = re.sub(r"\s+", "", stripped[len(word) :]) or "."
+    return f"Ah {_lower_first(word)}{tail}"
+
+
+def tts_text_variants(text: str) -> List[str]:
+    """Textes à essayer, dans l'ordre, pour une même réplique (sans doublon)."""
+    normalized = normalize_for_tts(text)
+    variants: List[str] = []
+    for candidate in (normalized, text, pad_short(normalized)):
+        if candidate and candidate not in variants:
+            variants.append(candidate)
+    return variants

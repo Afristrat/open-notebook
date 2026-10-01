@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -412,7 +413,12 @@ async def stream_podcast_episode_audio(episode_id: str):
 
 @router.post("/podcasts/episodes/{episode_id}/retry")
 async def retry_podcast_episode(episode_id: str):
-    """Retry a failed podcast episode by deleting it and submitting a new job"""
+    """Retry a failed podcast episode.
+
+    When the transcript already exists on disk, the episode is kept and the new
+    job resumes at the audio stage (only missing clips are redone). Otherwise the
+    failed episode is deleted and a new job is submitted.
+    """
     try:
         episode = await PodcastService.get_episode(episode_id)
 
@@ -435,6 +441,23 @@ async def retry_podcast_episode(episode_id: str):
                 status_code=400,
                 detail="Cannot retry: episode or speaker profile name missing from stored data",
             )
+
+        if (
+            episode.output_dir
+            and (Path(episode.output_dir) / "transcript.json").exists()
+        ):
+            job_id = await PodcastService.submit_generation_job(
+                episode_profile_name=ep_profile_name,
+                speaker_profile_name=sp_profile_name,
+                episode_name=episode_name,
+                content=content,
+                resume_episode_id=episode_id,
+            )
+            return {
+                "job_id": job_id,
+                "message": "Resume submitted successfully",
+                "resumed": True,
+            }
 
         # Delete audio file if any
         _delete_episode_audio(episode, episode_id)

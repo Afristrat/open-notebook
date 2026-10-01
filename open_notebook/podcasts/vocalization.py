@@ -244,9 +244,10 @@ def ensure_vocalization_installed() -> bool:
     """Insert `vocalize_transcript` into podcast-creator's graph.
 
     Idempotent. Replaces the module-level `graph` object of
-    podcast_creator.graph (the one create_podcast uses) with an identical copy
-    augmented by the vocalization node, placed between `generate_transcript` and
-    `generate_all_audio`.
+    podcast_creator.graph (the one create_podcast uses) with a copy augmented by
+    the vocalization node, placed between `generate_transcript` and
+    `generate_all_audio`, and whose audio node is the resilient one
+    (resume per clip, see resilient_audio.py).
 
     Returns True when the node is in place, False if installation failed (in
     which case the library's standard pipeline stays active).
@@ -259,18 +260,23 @@ def ensure_vocalization_installed() -> bool:
         from langgraph.graph import END, START, StateGraph
         from podcast_creator.nodes import (
             combine_audio_node,
-            generate_all_audio_node,
             generate_outline_node,
             generate_transcript_node,
             route_audio_generation,
         )
         from podcast_creator.state import PodcastState
 
+        from open_notebook.podcasts.resilient_audio import (
+            resilient_generate_all_audio_node,
+        )
+
         workflow = StateGraph(PodcastState)
         workflow.add_node("generate_outline", generate_outline_node)
         workflow.add_node("generate_transcript", generate_transcript_node)
         workflow.add_node("vocalize_transcript", vocalize_transcript_node)
-        workflow.add_node("generate_all_audio", generate_all_audio_node)
+        # Même nom de nœud que la librairie (le routage conditionnel le vise),
+        # mais reprise au clip et texte normalisé : voir resilient_audio.py.
+        workflow.add_node("generate_all_audio", resilient_generate_all_audio_node)
         workflow.add_node("combine_audio", combine_audio_node)
 
         workflow.add_edge(START, "generate_outline")
