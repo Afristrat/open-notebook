@@ -164,6 +164,68 @@ class TestLength:
             await cg.content_guard_node(state)
 
 
+class TestSpelledNumbers:
+    def test_parses_french_number_words(self):
+        assert cg.french_numbers("quatre mille agents") == [(4000, False)]
+        assert cg.french_numbers("cent cinquante mille dollars") == [(150000, False)]
+        assert cg.french_numbers("quatre-vingt-seize") == [(96, False)]
+        assert cg.french_numbers("deux mille vingt-six") == [(2026, False)]
+        assert cg.french_numbers("quatre-vingt-sept mille échantillons") == [(87000, False)]
+        assert cg.french_numbers("soixante et onze et vingt et un") == [(71, False), (21, False)]
+        assert cg.french_numbers("vingt pour cent") == [(20, True)]
+
+    def test_spelled_number_present_in_the_sources_is_accepted(self):
+        corpus = "found more than 4,000 agents; about 2,000 cases; 87k audio samples"
+        lines = ["Plus de quatre mille agents.", "Environ deux mille dossiers.",
+                 "Quatre-vingt-sept mille échantillons."]
+        assert cg.check_transcript(lines, corpus).violations == []
+
+    def test_spelled_number_absent_from_the_sources_is_a_violation(self):
+        report = cg.check_transcript(["Plus de quatre mille agents."], "about 2,000 cases")
+        assert ("nombre_absent", "4000 (écrit en lettres) absent des sources") in kinds(report)
+
+    def test_spelled_percentage_is_checked(self):
+        report = cg.check_transcript(["Vingt pour cent des agents."], "13 % of organizations")
+        assert any(v.kind == "nombre_absent" for v in report.violations)
+        assert cg.check_transcript(["Vingt pour cent des agents."], "20 % of agents").violations == []
+
+    def test_small_conversational_numbers_are_only_a_warning(self):
+        report = cg.check_transcript(["Prenez dix minutes aujourd'hui."], "texte")
+        assert report.violations == []
+        assert [w.kind for w in report.warnings] == ["nombre_en_lettres_absent"]
+
+    def test_spelled_year_matches_the_allowed_date(self):
+        report = cg.check_transcript(
+            ["Nous sommes en deux mille vingt-six."], "texte", extra_allowed="Date de la veille : 30 septembre 2026"
+        )
+        assert report.violations == []
+
+
+class TestSpeakerShare:
+    NAMES = ["Rim", "Khalid", "Tariq"]
+
+    def run(self, speakers):
+        return cg.check_transcript(
+            ["texte"] * len(speakers), "texte", speaker_names=self.NAMES,
+            speakers=speakers, min_share=0.22,
+        )
+
+    def test_balanced_conversation_is_accepted(self):
+        assert self.run(["Rim", "Khalid", "Tariq", "Khalid"] * 5).violations == []
+
+    def test_a_speaker_under_the_minimum_share_is_refused(self):
+        speakers = ["Rim"] * 33 + ["Khalid"] * 31 + ["Tariq"] * 16
+        report = self.run(speakers)
+        assert [v.kind for v in report.violations] == ["part_intervenant"]
+        assert report.violations[0].detail.startswith("Tariq ne dit que 16 réplique(s) sur 80 (20%)")
+
+    def test_the_share_check_is_off_without_a_minimum(self):
+        report = cg.check_transcript(
+            ["texte"] * 3, "texte", speaker_names=self.NAMES, speakers=["Rim", "Rim", "Rim"]
+        )
+        assert report.violations == []
+
+
 class TestOpening:
     NAMES = ["Rim", "Khalid", "Tariq"]
 
@@ -200,6 +262,7 @@ class TestGuardNode:
         monkeypatch.setattr(cg, "MIN_WORDS", 1)
         monkeypatch.setattr(cg, "MAX_WORDS", 100000)
         monkeypatch.setattr(cg, "INTRO_LINES", 0)
+        monkeypatch.setattr(cg, "MIN_SPEAKER_SHARE", 0)
 
     @pytest.mark.asyncio
     async def test_without_marker_the_guard_is_inactive(self, tmp_path):

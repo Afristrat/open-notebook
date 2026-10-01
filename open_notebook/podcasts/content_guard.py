@@ -20,7 +20,7 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
@@ -35,6 +35,22 @@ MAX_WORDS = 2000
 # ces premières répliques (retour d'écoute d'Amine, 2026-10-01 : l'épisode entrait
 # dans les faits sans présenter les profils qui débattent). 0 désactive le contrôle.
 INTRO_LINES = 10
+
+# Part de parole minimale de chaque intervenant : le profil Veille réserve à Tariq
+# l'usage réel au Maroc, il ne doit pas être réduit à quelques répliques (mesuré le
+# 2026-10-01 : 6 répliques sur 56, puis 16 sur 80 soit 20 %). 0 désactive.
+MIN_SPEAKER_SHARE = 0.22
+
+# Nombres français écrits en lettres (« quatre mille », « cent cinquante mille »).
+_UNITS = {
+    "zero": 0, "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5,
+    "six": 6, "sept": 7, "huit": 8, "neuf": 9, "dix": 10, "onze": 11, "douze": 12,
+    "treize": 13, "quatorze": 14, "quinze": 15, "seize": 16, "trente": 30,
+    "quarante": 40, "cinquante": 50, "soixante": 60,
+}
+_MULTIPLIERS = {"mille": 1000, "million": 10**6, "millions": 10**6,
+                "milliard": 10**9, "milliards": 10**9}
+_NUMBER_WORDS = set(_UNITS) | set(_MULTIPLIERS) | {"vingt", "vingts", "cent", "cents"}
 
 MARKER = "[CONTRÔLE VEILLE]"
 SOURCES_DELIMITER = "=== SOURCES INGÉRÉES ==="
@@ -132,6 +148,49 @@ def _numbers(text: str, comma_is_thousands: bool = False) -> Dict[str, bool]:
     return found
 
 
+def french_numbers(text: str) -> List[Tuple[int, bool]]:
+    """Nombres écrits en lettres → (valeur, suivi de « pour cent »).
+
+    « quatre mille » → 4000, « quatre-vingt-seize » → 96, « deux mille vingt-six »
+    → 2026, « vingt pour cent » → (20, True).
+    """
+    tokens = re.findall(r"[a-z]+", _fold(text))
+    found: List[Tuple[int, bool]] = []
+    i = 0
+    while i < len(tokens):
+        if tokens[i] not in _NUMBER_WORDS:
+            i += 1
+            continue
+        total = current = 0
+        while i < len(tokens):
+            word = tokens[i]
+            if word in _UNITS:
+                current += _UNITS[word]
+            elif word in ("vingt", "vingts"):
+                current = current * 20 if current == 4 else current + 20
+            elif word in ("cent", "cents"):
+                current = max(current, 1) * 100
+            elif word in _MULTIPLIERS:
+                total += max(current, 1) * _MULTIPLIERS[word]
+                current = 0
+            elif (
+                word == "et"
+                and current % 10 == 0
+                and current > 0
+                and i + 1 < len(tokens)
+                and tokens[i + 1] in ("un", "onze")
+            ):
+                pass  # « vingt et un », « soixante et onze »
+            else:
+                break
+            i += 1
+        percent = tokens[i : i + 2] == ["pour", "cent"]
+        if percent:
+            i += 2
+        found.append((total + current, percent))
+    return found
+
+
 def extract_corpus(content: Any) -> str:
     """Texte des sources, après le séparateur ; lève ValueError s'il est introuvable."""
     text = "\n".join(content) if isinstance(content, (list, tuple)) else str(content or "")
@@ -161,10 +220,25 @@ def check_transcript(
     word_range: Optional[Sequence[int]] = None,
     speakers: Optional[Sequence[str]] = None,
     intro_lines: int = 0,
+    min_share: float = 0.0,
 ) -> GuardReport:
     """Confronte chaque réplique au corpus des sources, la longueur à la fourchette,
-    et l'ouverture à la présentation des intervenants."""
+    l'ouverture à la présentation des intervenants et leur part de parole."""
     report = GuardReport()
+    if min_share and speakers and speaker_names:
+        folded_speakers = [_fold(s) for s in speakers]
+        for name in speaker_names:
+            count = folded_speakers.count(_fold(name))
+            share = count / len(folded_speakers)
+            if share < min_share:
+                report.violations.append(
+                    GuardIssue(
+                        0,
+                        "part_intervenant",
+                        f"{name} ne dit que {count} réplique(s) sur "
+                        f"{len(folded_speakers)} ({share:.0%}), minimum {min_share:.0%}",
+                    )
+                )
     if intro_lines and speakers is not None:
         opening = _fold(" ".join(lines[:intro_lines]))
         spoke = {_fold(s) for s in speakers[:intro_lines]}
@@ -218,6 +292,23 @@ def check_transcript(
                     GuardIssue(index, "nombre_absent", f"{token} absent des sources")
                 )
 
+        # Nombres écrits en lettres : un montant, un millésime ou un pourcentage est un
+        # fait (écart) ; une durée ou un petit nombre de conversation n'est qu'un signal.
+        for value, percent in french_numbers(line):
+            token = str(value)
+            if token in allowed_numbers:
+                continue
+            if value >= 100 or percent:
+                report.violations.append(
+                    GuardIssue(
+                        index, "nombre_absent", f"{token} (écrit en lettres) absent des sources"
+                    )
+                )
+            elif value >= 10:
+                report.warnings.append(
+                    GuardIssue(index, "nombre_en_lettres_absent", f"{token} absent des sources")
+                )
+
         for noun in _PROPER_NOUN.findall(line):
             word = _fold(noun)
             if word not in corpus_words and word not in names:
@@ -246,6 +337,7 @@ async def content_guard_node(
         word_range=(MIN_WORDS, MAX_WORDS),
         speakers=[getattr(d, "speaker", "") for d in transcript],
         intro_lines=INTRO_LINES,
+        min_share=MIN_SPEAKER_SHARE,
     )
 
     output_dir = state.get("output_dir")
