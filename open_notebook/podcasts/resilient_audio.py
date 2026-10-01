@@ -33,7 +33,7 @@ from loguru import logger
 from podcast_creator.core import Dialogue
 from podcast_creator.nodes import combine_audio_node, generate_single_audio_clip
 
-from open_notebook.podcasts.tts_text import tts_text_variants
+from open_notebook.podcasts.tts_text import has_lexicon_term, tts_text_variants
 
 # En dessous, le fichier est un déchet d'échec (en-tête sans audio), pas un clip.
 MIN_CLIP_BYTES = 1000
@@ -59,6 +59,11 @@ def _clip_path(output_dir: Any, index: int) -> Path:
 
 def _is_valid_clip(path: Path) -> bool:
     return path.exists() and path.stat().st_size >= MIN_CLIP_BYTES
+
+
+def _lexicon_marker(output_dir: Any, index: int) -> Path:
+    """Marqueur « clip produit avec le lexique de prononciation », hors du dossier des clips."""
+    return Path(output_dir) / "lexicon_checked" / f"{index:04d}"
 
 
 # Seuil mesuré le 2026-10-01 : le moteur de voix produit par intermittence un clip
@@ -123,16 +128,26 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
     index = dialogue_info["index"]
     clip_path = _clip_path(dialogue_info["output_dir"], index)
 
+    marker = _lexicon_marker(dialogue_info["output_dir"], index)
+    needs_lexicon = has_lexicon_term(dialogue.dialogue)
+
     if _is_valid_clip(clip_path):
         silence = await _longest_silence(clip_path)
-        if not silence:
+        if needs_lexicon and not marker.exists():
+            logger.warning(
+                f"[audio] clip {index:04d} existant écarté : produit avant le lexique "
+                "de prononciation, il est régénéré"
+            )
+            clip_path.unlink(missing_ok=True)
+        elif not silence:
             logger.info(f"[audio] clip {index:04d} déjà produit, repris tel quel")
             return clip_path
-        logger.warning(
-            f"[audio] clip {index:04d} existant écarté : silence interne de "
-            f"{silence:.0f}s, il est régénéré"
-        )
-        clip_path.unlink(missing_ok=True)
+        else:
+            logger.warning(
+                f"[audio] clip {index:04d} existant écarté : silence interne de "
+                f"{silence:.0f}s, il est régénéré"
+            )
+            clip_path.unlink(missing_ok=True)
 
     variants = tts_text_variants(dialogue.dialogue)
     max_attempts = int(_env_number("DIWAN_TTS_MAX_ATTEMPTS", 8))
@@ -158,6 +173,9 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
                     f"[audio] clip {index:04d} produit à l'essai {attempt + 1} "
                     f"(écriture {attempt % len(variants) + 1}/{len(variants)})"
                 )
+            if needs_lexicon:
+                marker.parent.mkdir(parents=True, exist_ok=True)
+                marker.touch()
             return path
         except Exception as exc:  # noqa: BLE001 - classé retryable ou non juste dessous
             last_error = exc

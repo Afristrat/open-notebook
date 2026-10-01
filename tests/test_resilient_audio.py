@@ -232,6 +232,35 @@ class TestLongestSilence:
         assert await ra._longest_silence(tmp_path / "clip.mp3") == 0.0
 
 
+class TestLexiconResume:
+    @pytest.mark.asyncio
+    async def test_existing_clip_with_a_lexicon_term_is_regenerated_once(
+        self, tmp_path, synth
+    ):
+        existing = tmp_path / "clips" / "0000.mp3"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"x" * 2000)
+        state = make_state(tmp_path, ["Selon arXiv, c'est établi."])
+
+        await ra.resilient_generate_all_audio_node(state)
+        await ra.resilient_generate_all_audio_node(state)
+
+        assert synth.calls == [(0, "Selon arksive, c'est établi.")]
+
+    @pytest.mark.asyncio
+    async def test_existing_clip_without_a_lexicon_term_is_still_reused(
+        self, tmp_path, synth
+    ):
+        existing = tmp_path / "clips" / "0000.mp3"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"x" * 2000)
+        state = make_state(tmp_path, ["Une réplique sans terme du lexique."])
+
+        await ra.resilient_generate_all_audio_node(state)
+
+        assert synth.calls == []
+
+
 class TestGraphInstall:
     def test_graph_compiles_with_the_guard_and_the_resilient_audio_nodes(self):
         import podcast_creator.graph as pcg

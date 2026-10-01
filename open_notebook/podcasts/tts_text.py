@@ -98,6 +98,11 @@ def apply_lexicon(text: str) -> str:
     return text
 
 
+def has_lexicon_term(text: str) -> bool:
+    """Vrai si le texte contient un terme dont l'écriture est corrigée pour le moteur."""
+    return apply_lexicon(text) != text
+
+
 def tts_text_variants(text: str) -> List[str]:
     """Textes à essayer, dans l'ordre, pour une même réplique (sans doublon)."""
     text = apply_lexicon(text)

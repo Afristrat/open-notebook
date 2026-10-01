@@ -8,6 +8,7 @@ verrouillent la correction : fusionner la phrase courte avec sa voisine.
 from open_notebook.podcasts.tts_text import (
     MIN_SENTENCE_CHARS,
     apply_lexicon,
+    has_lexicon_term,
     normalize_for_tts,
     pad_short,
     tts_text_variants,
@@ -110,3 +111,7 @@ class TestLexicon:
     def test_every_variant_sent_to_the_engine_carries_the_spoken_spelling(self):
         variants = tts_text_variants("Oui. Selon arXiv, c'est établi.")
         assert variants and all("arksive" in v and "arXiv" not in v for v in variants)
+
+    def test_has_lexicon_term_tells_whether_a_text_is_rewritten(self):
+        assert has_lexicon_term("Selon arXiv.")
+        assert not has_lexicon_term("Rien à corriger.")
