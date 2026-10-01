@@ -42,6 +42,11 @@ INTRO_LINES = 10
 # 2026-10-01 : 6 répliques sur 56, puis 16 sur 80 soit 20 %). 0 désactive.
 MIN_SPEAKER_SHARE = 0.22
 
+# Clôture : la dernière réplique est celle de l'animateur (le premier à parler), qui
+# donne l'action du jour et salue. Constaté le 2026-10-01 : l'épisode se terminait sur
+# une opinion de Tariq, sans salut. False désactive.
+HOST_CLOSES = True
+
 # Nombres français écrits en lettres (« quatre mille », « cent cinquante mille »).
 _UNITS = {
     "zero": 0, "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5,
@@ -251,10 +256,20 @@ def check_transcript(
     speakers: Optional[Sequence[str]] = None,
     intro_lines: int = 0,
     min_share: float = 0.0,
+    closing_speaker: Optional[str] = None,
 ) -> GuardReport:
     """Confronte chaque réplique au corpus des sources, la longueur à la fourchette,
-    l'ouverture à la présentation des intervenants et leur part de parole."""
+    l'ouverture à la présentation des intervenants, leur part de parole et la clôture."""
     report = GuardReport()
+    if closing_speaker and speakers and _fold(speakers[-1]) != _fold(closing_speaker):
+        report.violations.append(
+            GuardIssue(
+                len(speakers) - 1,
+                "cloture_absente",
+                f"la dernière réplique doit être celle de {closing_speaker} "
+                f"(action du jour et salut), elle est de {speakers[-1]}",
+            )
+        )
     if min_share and speakers and speaker_names:
         folded_speakers = [_fold(s) for s in speakers]
         for name in speaker_names:
@@ -358,15 +373,17 @@ async def content_guard_node(
     corpus = extract_corpus(state.get("content"))
     profile = state.get("speaker_profile")
     names = [s.name for s in getattr(profile, "speakers", [])]
+    speakers_in_order = [getattr(d, "speaker", "") for d in transcript]
     report = check_transcript(
         [d.dialogue for d in transcript],
         corpus,
         extra_allowed=allowed_dates(state.get("content")),
         speaker_names=names,
         word_range=(MIN_WORDS, MAX_WORDS),
-        speakers=[getattr(d, "speaker", "") for d in transcript],
+        speakers=speakers_in_order,
         intro_lines=INTRO_LINES,
         min_share=MIN_SPEAKER_SHARE,
+        closing_speaker=speakers_in_order[0] if HOST_CLOSES and speakers_in_order else None,
     )
 
     output_dir = state.get("output_dir")

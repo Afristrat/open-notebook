@@ -248,6 +248,26 @@ class TestSpeakerShare:
         assert report.violations == []
 
 
+class TestClosing:
+    def run(self, speakers):
+        return cg.check_transcript(
+            ["texte"] * len(speakers), "texte", speakers=speakers, closing_speaker="Rim"
+        )
+
+    def test_closing_by_the_host_is_accepted(self):
+        assert self.run(["Rim", "Khalid", "Tariq", "Rim"]).violations == []
+
+    def test_ending_on_another_speaker_is_refused(self):
+        report = self.run(["Rim", "Khalid", "Rim", "Tariq"])
+        assert [v.kind for v in report.violations] == ["cloture_absente"]
+        assert report.violations[0].line == 3
+        assert "elle est de Tariq" in report.violations[0].detail
+
+    def test_the_closing_check_is_off_without_a_closing_speaker(self):
+        report = cg.check_transcript(["texte"] * 2, "texte", speakers=["Rim", "Tariq"])
+        assert report.violations == []
+
+
 class TestOpening:
     NAMES = ["Rim", "Khalid", "Tariq"]
 
@@ -285,6 +305,7 @@ class TestGuardNode:
         monkeypatch.setattr(cg, "MAX_WORDS", 100000)
         monkeypatch.setattr(cg, "INTRO_LINES", 0)
         monkeypatch.setattr(cg, "MIN_SPEAKER_SHARE", 0)
+        monkeypatch.setattr(cg, "HOST_CLOSES", False)
 
     @pytest.mark.asyncio
     async def test_without_marker_the_guard_is_inactive(self, tmp_path):
