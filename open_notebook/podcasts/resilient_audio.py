@@ -24,6 +24,7 @@ import asyncio
 import json
 import os
 import random
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -60,6 +61,46 @@ def _is_valid_clip(path: Path) -> bool:
     return path.exists() and path.stat().st_size >= MIN_CLIP_BYTES
 
 
+# Seuil mesuré le 2026-10-01 : le moteur de voix produit par intermittence un clip
+# avec un blanc interne de 13 à 80 secondes (6 clips sur 108 dans un épisode, à
+# l'origine comme à la reprise ; le même texte régénéré est normal). Les pauses
+# naturelles restent sous 1,5 s.
+_SILENCE_FLOOR_DB = -45
+_SILENCE_DURATION_RE = re.compile(r"silence_duration: ([\d.]+)")
+
+
+async def _longest_silence(path: Path) -> float:
+    """Plus long silence interne d'un clip, en secondes ; 0 s'il n'y en a pas de long.
+
+    Si ffmpeg est indisponible, la détection est ignorée (le clip est gardé).
+    """
+    minimum = _env_number("DIWAN_TTS_MAX_SILENCE", 1.5)
+    try:
+        process = await asyncio.create_subprocess_exec(
+            "ffmpeg",
+            "-hide_banner",
+            "-nostats",
+            "-i",
+            str(path),
+            "-af",
+            f"silencedetect=noise={_SILENCE_FLOOR_DB}dB:d={minimum}",
+            "-f",
+            "null",
+            "-",
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await process.communicate()
+    except OSError as exc:
+        logger.warning(f"[audio] détection de silence indisponible : {exc}")
+        return 0.0
+    found = [
+        float(value)
+        for value in _SILENCE_DURATION_RE.findall(stderr.decode("utf-8", "replace"))
+    ]
+    return max(found, default=0.0)
+
+
 def _is_retryable(exc: BaseException) -> bool:
     """Même règle que la librairie : jamais les erreurs de programmation ni les 4xx (sauf 429)."""
     if isinstance(exc, _NON_RETRYABLE):
@@ -83,8 +124,15 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
     clip_path = _clip_path(dialogue_info["output_dir"], index)
 
     if _is_valid_clip(clip_path):
-        logger.info(f"[audio] clip {index:04d} déjà produit, repris tel quel")
-        return clip_path
+        silence = await _longest_silence(clip_path)
+        if not silence:
+            logger.info(f"[audio] clip {index:04d} déjà produit, repris tel quel")
+            return clip_path
+        logger.warning(
+            f"[audio] clip {index:04d} existant écarté : silence interne de "
+            f"{silence:.0f}s, il est régénéré"
+        )
+        clip_path.unlink(missing_ok=True)
 
     variants = tts_text_variants(dialogue.dialogue)
     max_attempts = int(_env_number("DIWAN_TTS_MAX_ATTEMPTS", 8))
@@ -102,6 +150,9 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
             path = await generate_single_audio_clip(info)
             if not _is_valid_clip(path):
                 raise RuntimeError("clip vide ou tronqué")
+            silence = await _longest_silence(path)
+            if silence:
+                raise RuntimeError(f"silence interne de {silence:.0f}s dans le clip")
             if attempt:
                 logger.info(
                     f"[audio] clip {index:04d} produit à l'essai {attempt + 1} "

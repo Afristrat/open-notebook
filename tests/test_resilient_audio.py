@@ -53,7 +53,13 @@ def synth(monkeypatch):
     async def no_sleep(_seconds):
         return None
 
+    silences: List[float] = []
+
+    async def fake_silence(_path):
+        return silences.pop(0) if silences else 0.0
+
     monkeypatch.setattr(ra, "generate_single_audio_clip", fake_clip)
+    monkeypatch.setattr(ra, "_longest_silence", fake_silence)
     monkeypatch.setattr(ra.asyncio, "sleep", no_sleep)
     monkeypatch.setenv("DIWAN_TTS_WAIT_BASE", "0")
     monkeypatch.setenv("DIWAN_TTS_MAX_ATTEMPTS", "4")
@@ -66,7 +72,7 @@ def synth(monkeypatch):
             behaviour["fail_if"] = fail_if
         behaviour["raises"] = raises
 
-    return SimpleNamespace(calls=calls, configure=configure)
+    return SimpleNamespace(calls=calls, configure=configure, silences=silences)
 
 
 class TestResilientAudioNode:
@@ -158,6 +164,72 @@ class TestResilientAudioNode:
 
         with pytest.raises(ValueError):
             await ra.resilient_generate_all_audio_node(state)
+
+
+class TestSilenceDetection:
+    @pytest.mark.asyncio
+    async def test_generated_clip_with_a_long_silence_is_regenerated(
+        self, tmp_path, synth
+    ):
+        synth.silences.extend([80.0, 0.0])
+        state = make_state(tmp_path, ["Une réplique assez longue pour être dite."])
+
+        await ra.resilient_generate_all_audio_node(state)
+
+        assert [index for index, _ in synth.calls] == [0, 0]
+
+    @pytest.mark.asyncio
+    async def test_existing_clip_with_a_long_silence_is_replaced_on_resume(
+        self, tmp_path, synth
+    ):
+        existing = tmp_path / "clips" / "0000.mp3"
+        existing.parent.mkdir(parents=True)
+        existing.write_bytes(b"x" * 2000)
+        synth.silences.extend([76.0, 0.0])
+        state = make_state(tmp_path, ["Une réplique assez longue pour être dite."])
+
+        await ra.resilient_generate_all_audio_node(state)
+
+        assert [index for index, _ in synth.calls] == [0]
+
+    @pytest.mark.asyncio
+    async def test_clip_that_stays_silent_fails_after_all_attempts(
+        self, tmp_path, synth, monkeypatch
+    ):
+        monkeypatch.setenv("DIWAN_TTS_MAX_ATTEMPTS", "2")
+        synth.silences.extend([50.0, 50.0])
+        state = make_state(tmp_path, ["Une réplique assez longue pour être dite."])
+
+        with pytest.raises(RuntimeError, match="silence interne"):
+            await ra.resilient_generate_all_audio_node(state)
+
+        assert not (tmp_path / "clips" / "0000.mp3").exists()
+
+
+class TestLongestSilence:
+    @pytest.mark.asyncio
+    async def test_reads_the_longest_silence_from_ffmpeg_output(
+        self, tmp_path, monkeypatch
+    ):
+        class FakeProcess:
+            async def communicate(self):
+                return b"", b"silence_duration: 12.5\nsilence_duration: 3.0\n"
+
+        async def fake_exec(*_args, **_kwargs):
+            return FakeProcess()
+
+        monkeypatch.setattr(ra.asyncio, "create_subprocess_exec", fake_exec)
+
+        assert await ra._longest_silence(tmp_path / "clip.mp3") == 12.5
+
+    @pytest.mark.asyncio
+    async def test_missing_ffmpeg_keeps_the_clip(self, tmp_path, monkeypatch):
+        async def missing(*_args, **_kwargs):
+            raise FileNotFoundError("ffmpeg")
+
+        monkeypatch.setattr(ra.asyncio, "create_subprocess_exec", missing)
+
+        assert await ra._longest_silence(tmp_path / "clip.mp3") == 0.0
 
 
 class TestGraphInstall:
