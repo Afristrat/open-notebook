@@ -7,6 +7,7 @@ verrouillent la correction : fusionner la phrase courte avec sa voisine.
 
 from open_notebook.podcasts.tts_text import (
     MIN_SENTENCE_CHARS,
+    apply_lexicon,
     normalize_for_tts,
     pad_short,
     tts_text_variants,
@@ -91,3 +92,21 @@ class TestVariants:
         assert tts_text_variants("Exactement. C'est bien ça.") == [
             "Exactement. C'est bien ça."
         ]
+
+
+class TestLexicon:
+    def test_arxiv_is_spelled_for_the_engine_in_any_case(self):
+        for written in ("arXiv", "arxiv", "ARXIV", "ArXiv"):
+            assert apply_lexicon(f"Selon la source {written}, un essai.") == (
+                "Selon la source arksive, un essai."
+            )
+
+    def test_only_whole_words_are_replaced(self):
+        assert apply_lexicon("Le mot arxivage reste intact.") == "Le mot arxivage reste intact."
+
+    def test_text_without_a_known_term_is_untouched(self):
+        assert apply_lexicon("Khalid présente le sujet.") == "Khalid présente le sujet."
+
+    def test_every_variant_sent_to_the_engine_carries_the_spoken_spelling(self):
+        variants = tts_text_variants("Oui. Selon arXiv, c'est établi.")
+        assert variants and all("arksive" in v and "arXiv" not in v for v in variants)

@@ -81,8 +81,26 @@ def pad_short(text: str) -> str:
     return f"Ah {_lower_first(word)}{tail}"
 
 
+# Lexique de prononciation : écriture envoyée au moteur de voix, jamais au texte stocké.
+# Mesuré le 2026-10-01 sur le moteur de production (3 voix, transcription Whisper) :
+# « arXiv » est lu « archive » par les trois voix (22 lectures sur 24), et « arxive »,
+# « arkive », « ar-xive », « ArXiv » aussi ; « arksive » donne le son /ks/ attendu
+# (12 sur 12, transcrit « arcsive » ou « arctive »).
+_PRONUNCIATION_LEXICON = (
+    (re.compile(r"\barxiv\b", re.IGNORECASE), "arksive"),
+)
+
+
+def apply_lexicon(text: str) -> str:
+    """Remplace chaque terme du lexique (mot entier, insensible à la casse) par sa graphie sonore."""
+    for pattern, spoken in _PRONUNCIATION_LEXICON:
+        text = pattern.sub(spoken, text)
+    return text
+
+
 def tts_text_variants(text: str) -> List[str]:
     """Textes à essayer, dans l'ordre, pour une même réplique (sans doublon)."""
+    text = apply_lexicon(text)
     normalized = normalize_for_tts(text)
     variants: List[str] = []
     for candidate in (normalized, text, pad_short(normalized)):
