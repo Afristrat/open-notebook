@@ -44,7 +44,8 @@ FETCH_WAITS = (5, 20, 60)
 MAX_CALLBACK_ATTEMPTS_TOTAL = 20
 DEFAULT_PUBLIC_URL = "https://diwan.ai-mpower.com"
 ARXIV_API = "https://export.arxiv.org/api/query"
-ARXIV_TIMEOUT_SECONDS = 20
+ARXIV_TIMEOUT_SECONDS = 45
+ARXIV_WAITS = (0, 5, 15)
 
 
 class ProductionFailed(Exception):
@@ -116,15 +117,21 @@ async def _linked_arxiv_pdf(source: Dict[str, Any]) -> Optional[str]:
     query = ingest.arxiv_search_query(title)
     if not query:
         return None
-    try:
-        async with httpx.AsyncClient(timeout=ARXIV_TIMEOUT_SECONDS, follow_redirects=True) as client:
-            response = await client.get(
-                ARXIV_API, params={"search_query": query, "max_results": 10},
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
-            response.raise_for_status()
-    except httpx.HTTPError as exc:
-        logger.info(f"[veille] recherche arXiv impossible ({type(exc).__name__})")
+    response = None
+    for wait in ARXIV_WAITS:  # l'API d'arXiv est lente et limite le débit (ReadTimeout à 20 s, 429, 503 le 02/10)
+        await asyncio.sleep(wait)
+        try:
+            async with httpx.AsyncClient(timeout=ARXIV_TIMEOUT_SECONDS, follow_redirects=True) as client:
+                response = await client.get(
+                    ARXIV_API, params={"search_query": query, "max_results": 10},
+                    headers={"User-Agent": "Mozilla/5.0"},
+                )
+                response.raise_for_status()
+            break
+        except httpx.HTTPError as exc:
+            logger.info(f"[veille] recherche arXiv impossible ({type(exc).__name__})")
+            response = None
+    if response is None:
         return None
     ident = ingest.pick_arxiv_match(title, ingest.parse_arxiv_feed(response.text))
     return f"https://arxiv.org/pdf/{ident}" if ident else None

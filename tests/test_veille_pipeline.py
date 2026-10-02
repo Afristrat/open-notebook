@@ -418,8 +418,8 @@ We introduce agentic meta-reasoning, an inference-time harness.</summary></entry
 class _FakeArxiv:
     """Remplace httpx.AsyncClient: renvoie un flux fixe, ou échoue comme un réseau coupé."""
 
-    def __init__(self, body=ATOM_FEED, error=None):
-        self.body, self.error = body, error
+    def __init__(self, body=ATOM_FEED, error=None, fail_first=0):
+        self.body, self.error, self.fail_first, self.calls = body, error, fail_first, 0
 
     def __call__(self, **kwargs):
         return self
@@ -431,9 +431,11 @@ class _FakeArxiv:
         return False
 
     async def get(self, url, params=None, headers=None):
-        if self.error:
-            raise self.error
         import httpx
+
+        self.calls += 1
+        if self.error and self.calls <= self.fail_first:
+            raise self.error
 
         return httpx.Response(200, text=self.body, request=httpx.Request("GET", url))
 
@@ -467,8 +469,20 @@ class TestLinkedArxivPdf:
 
     @pytest.mark.asyncio
     async def test_arxiv_unreachable_leaves_the_source_as_before(self, monkeypatch):
-        monkeypatch.setattr(pipeline.httpx, "AsyncClient", _FakeArxiv(error=pipeline.httpx.ConnectError("down")))
+        monkeypatch.setattr(pipeline, "ARXIV_WAITS", (0, 0, 0))
+        fake = _FakeArxiv(error=pipeline.httpx.ConnectError("down"), fail_first=99)
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", fake)
         assert await pipeline._linked_arxiv_pdf(X_POST) is None
+        assert fake.calls == 3
+
+    @pytest.mark.asyncio
+    async def test_a_slow_arxiv_is_retried(self, monkeypatch):
+        """Le 02/10, un ReadTimeout isolé à 20 s a suffi à faire perdre l'article."""
+        monkeypatch.setattr(pipeline, "ARXIV_WAITS", (0, 0, 0))
+        fake = _FakeArxiv(error=pipeline.httpx.ReadTimeout("slow"), fail_first=2)
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", fake)
+        assert await pipeline._linked_arxiv_pdf(X_POST) == "https://arxiv.org/pdf/2609.38147v1"
+        assert fake.calls == 3
 
     @pytest.mark.asyncio
     async def test_other_sources_are_not_searched_on_arxiv(self, monkeypatch):
