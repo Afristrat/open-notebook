@@ -202,7 +202,9 @@ def french_numbers(text: str) -> List[Tuple[int, bool]]:
             if word in _UNITS:
                 current += _UNITS[word]
             elif word in ("vingt", "vingts"):
-                current = current * 20 if current == 4 else current + 20
+                # « quatre-vingt » vaut 80 : « quatre » est déjà compté, d'où + 76 (« cent quatre-vingt »,
+                # « deux cent quatre-vingt mille ») ; seul « vingt » sans « quatre » devant ajoute 20.
+                current += 76 if i > 0 and tokens[i - 1] == "quatre" else 20
             elif word in ("cent", "cents"):
                 current = max(current, 1) * 100
             elif word in _MULTIPLIERS:

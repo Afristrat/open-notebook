@@ -196,6 +196,13 @@ class TestSpelledNumbers:
         assert cg.french_numbers("soixante et onze et vingt et un") == [(71, False), (21, False)]
         assert cg.french_numbers("vingt pour cent") == [(20, True)]
 
+    def test_quatre_vingt_after_a_hundred_is_eighty_not_twenty_four(self):
+        # Régression du 02/10 : « trois cent quatre-vingt mille » (380 000) était lu 324 000.
+        assert cg.french_numbers("trois cent quatre-vingt mille") == [(380000, False)]
+        assert cg.french_numbers("cent quatre-vingt-un") == [(181, False)]
+        assert cg.french_numbers("deux cent quatre-vingts") == [(280, False)]
+        assert cg.french_numbers("vingt, puis quatre") == [(20, False), (4, False)]
+
     def test_spelled_number_present_in_the_sources_is_accepted(self):
         corpus = "found more than 4,000 agents; about 2,000 cases; 87k audio samples"
         lines = ["Plus de quatre mille agents.", "Environ deux mille dossiers.",
