@@ -398,3 +398,89 @@ class TestReconcile:
         await reconcile.reconcile_once()
         assert store.by_ref(REF)["statut"] == "echec"
         assert "interrompue" in callbacks[0]["erreur"]
+
+
+X_POST = {
+    "numero": 2,
+    "titre": (
+        "As agents tackle longer, more complex problems, controlling their execution becomes a challenge in "
+        "itself. This work introduces agentic meta-reasoning, an inference-time harness."
+    ),
+    "url": "https://x.com/someone/status/2105721229055275175",
+    "article_url": None,
+}
+ATOM_FEED = """<?xml version="1.0"?><feed xmlns="http://www.w3.org/2005/Atom"><entry>
+<id>http://arxiv.org/abs/2609.38147v1</id><title>Thinking Before Thinking: Meta-Reasoning</title>
+<summary>As agents tackle longer, more complex problems, controlling their execution becomes a challenge.
+We introduce agentic meta-reasoning, an inference-time harness.</summary></entry></feed>"""
+
+
+class _FakeArxiv:
+    """Remplace httpx.AsyncClient: renvoie un flux fixe, ou échoue comme un réseau coupé."""
+
+    def __init__(self, body=ATOM_FEED, error=None):
+        self.body, self.error = body, error
+
+    def __call__(self, **kwargs):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def get(self, url, params=None, headers=None):
+        if self.error:
+            raise self.error
+        import httpx
+
+        return httpx.Response(200, text=self.body, request=httpx.Request("GET", url))
+
+
+class TestLinkedArxivPdf:
+    """Le 02/10, le post X de la note 2 n'était pas lisible et son article (source des chiffres) manquait."""
+
+    @pytest.mark.asyncio
+    async def test_the_announced_article_is_found_and_read_in_full(self, monkeypatch):
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", _FakeArxiv())
+        read = []
+
+        async def fake_read(url, limiter):
+            read.append(url)
+            return ("", "texte " + url)
+
+        monkeypatch.setattr(pipeline, "_read", fake_read)
+        title, text, article = await pipeline._read_source(X_POST, asyncio.Semaphore(1))
+        assert read == [X_POST["url"], "https://arxiv.org/pdf/2609.38147v1"]
+        assert article.endswith("2609.38147v1")
+
+    @pytest.mark.asyncio
+    async def test_no_article_is_taken_when_arxiv_answers_something_else(self, monkeypatch):
+        other = (
+            '<feed xmlns="http://www.w3.org/2005/Atom"><entry><id>http://arxiv.org/abs/2606.07790v1</id>'
+            "<title>Byzantine Cheap Talk in Coordination Games</title>"
+            "<summary>We study adversarial resilience and topology effects in coordination.</summary></entry></feed>"
+        )
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", _FakeArxiv(body=other))
+        assert await pipeline._linked_arxiv_pdf(X_POST) is None
+
+    @pytest.mark.asyncio
+    async def test_arxiv_unreachable_leaves_the_source_as_before(self, monkeypatch):
+        monkeypatch.setattr(pipeline.httpx, "AsyncClient", _FakeArxiv(error=pipeline.httpx.ConnectError("down")))
+        assert await pipeline._linked_arxiv_pdf(X_POST) is None
+
+    @pytest.mark.asyncio
+    async def test_other_sources_are_not_searched_on_arxiv(self, monkeypatch):
+        called = []
+
+        async def spy(source):
+            called.append(source)
+
+        async def fake_read(url, limiter):
+            return ("", "texte")
+
+        monkeypatch.setattr(pipeline, "_linked_arxiv_pdf", spy)
+        monkeypatch.setattr(pipeline, "_read", fake_read)
+        await pipeline._read_source({"url": "https://editeur.example/a", "titre": "x"}, asyncio.Semaphore(1))
+        assert called == []

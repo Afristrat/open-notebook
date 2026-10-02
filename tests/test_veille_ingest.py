@@ -208,3 +208,60 @@ class TestRegressionOfTheDay:
 
     def test_accepted_once_the_full_article_extract_is_in_the_corpus(self):
         assert self._guard(self.ARTICLE_TEXT) == []
+
+
+POST_TEXT = (
+    "As agents tackle longer, more complex problems, controlling their execution becomes a challenge in "
+    "itself. This work introduces agentic meta-reasoning, an inference-time harness that explicitly reasons "
+    "about which work to pursue, reuse, or stop."
+)
+FEED = """<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/2606.07790v1</id>
+    <title>Byzantine Cheap Talk: Adversarial Resilience in LLM Coordination Games</title>
+    <summary>We study adversarial agents in coordination games with cheap talk.</summary>
+  </entry>
+  <entry>
+    <id>http://arxiv.org/abs/2609.38147v1</id>
+    <title>Thinking Before Thinking: Scaling Agentic Inference Through Meta-Reasoning</title>
+    <summary>As agents tackle longer, more complex problems, controlling their execution becomes a challenge.
+    We introduce agentic meta-reasoning, an inference-time harness that reasons about which work to
+    pursue, reuse, or stop.</summary>
+  </entry>
+</feed>"""
+
+
+class TestLinkedArxivArticle:
+    """Le 02/10, Saqr ne donne pas l'article d'un post X: Dīwān le retrouve, sans jamais en prendre un au hasard."""
+
+    def test_query_puts_hyphenated_expressions_first(self):
+        query = ingest.arxiv_search_query(POST_TEXT)
+        assert query is not None
+        assert query.startswith('all:"')
+        assert 'all:"meta-reasoning"' in query and 'all:"inference-time"' in query
+        assert " OR " not in query and query.count(" AND ") == 2
+
+    def test_a_post_too_short_to_identify_a_paper_gives_no_query(self):
+        assert ingest.arxiv_search_query("New results on benchmarks") is None
+        assert ingest.arxiv_search_query(None) is None
+
+    def test_feed_is_parsed_into_identifier_title_and_summary(self):
+        entries = ingest.parse_arxiv_feed(FEED)
+        assert [e["id"] for e in entries] == ["2606.07790v1", "2609.38147v1"]
+        assert entries[1]["title"].startswith("Thinking Before Thinking")
+
+    def test_unreadable_feed_gives_no_entry(self):
+        assert ingest.parse_arxiv_feed("pas du xml") == []
+
+    def test_a_feed_with_a_dtd_is_refused(self):
+        hostile = '<?xml version="1.0"?><!DOCTYPE feed [<!ENTITY a "aaaa">]><feed xmlns="http://www.w3.org/2005/Atom"/>'
+        assert ingest.parse_arxiv_feed(hostile) == []
+
+    def test_the_paper_the_post_announces_is_picked(self):
+        assert ingest.pick_arxiv_match(POST_TEXT, ingest.parse_arxiv_feed(FEED)) == "2609.38147v1"
+
+    def test_no_paper_is_taken_when_none_matches(self):
+        unrelated = ingest.parse_arxiv_feed(FEED)[:1]
+        assert ingest.pick_arxiv_match(POST_TEXT, unrelated) is None
+        assert ingest.pick_arxiv_match(POST_TEXT, []) is None

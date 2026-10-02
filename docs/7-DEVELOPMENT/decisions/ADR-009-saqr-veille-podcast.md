@@ -73,8 +73,14 @@ Deux pièges rencontrés, à connaître avant toute opération Coolify sur cette
   posts X, quand Dīwān n'obtient pas plus que le titre relevé par Saqr, ce titre (qui est le texte du post tel que
   Saqr l'a capturé) sert de texte de la source, et le rapport le dit (« texte du post relevé par Saqr »). Sans ce
   repli, les chiffres de la veille tirés du post n'ont plus de source et le contrôle refuse tout l'épisode (essai de
-  bout en bout du 02/10, 5 tentatives refusées). Un chiffre tiré de l'ARTICLE que le post renvoie n'est toujours pas
-  retrouvé tant que cet article n'est pas ingéré ; le contrôle refuse alors, c'est voulu.
+  bout en bout du 02/10, 5 tentatives refusées). Les chiffres tirés de l'ARTICLE que le post annonce (Saqr ne
+  renseigne pas `article_url` pour un post X) viennent de la résolution automatique : recherche sur l'API publique
+  d'arXiv à partir du texte du post (trois termes au plus, en « AND » : le même jeu en « OR » noyait l'article, mesuré
+  le 02/10), puis l'article n'est retenu que si le post retrouve au moins 60 % de ses mots distinctifs dans son titre
+  et son résumé (`ingest.pick_arxiv_match`) ; jamais un article au hasard. Le PDF complet est alors lu comme celui
+  d'une source arXiv. Limites : un article hors arXiv n'est pas retrouvé, et si arXiv est injoignable la source reste
+  lue comme avant ; dans les deux cas le contrôle refuse un chiffre sans source, c'est voulu. La correction à la
+  cause reste chez Saqr : renseigner `article_url` pour les posts X.
 - **`page_url`** : la page qui renvoie vers l'ensemble des plateformes n'existe pas encore chez Dīwān ;
   `SAQR_VEILLE_PAGE_URL_TEMPLATE` (vide par défaut) la renseignera. Le rappel envoie `null` d'ici là.
 - Les adresses audio sont publiques et non signées, comme le reste de `/api/podcasts/*` ; elles changeront si

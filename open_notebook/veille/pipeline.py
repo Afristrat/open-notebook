@@ -13,6 +13,7 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+import httpx
 from loguru import logger
 from surreal_commands import submit_command
 
@@ -42,6 +43,8 @@ CALLBACK_WAITS = (5, 20, 60)
 FETCH_WAITS = (5, 20, 60)
 MAX_CALLBACK_ATTEMPTS_TOTAL = 20
 DEFAULT_PUBLIC_URL = "https://diwan.ai-mpower.com"
+ARXIV_API = "https://export.arxiv.org/api/query"
+ARXIV_TIMEOUT_SECONDS = 20
 
 
 class ProductionFailed(Exception):
@@ -104,6 +107,29 @@ async def _read(url: str, limiter: asyncio.Semaphore) -> Tuple[str, str]:
         return "", ""
 
 
+async def _linked_arxiv_pdf(source: Dict[str, Any]) -> Optional[str]:
+    """PDF de l'article arXiv que annonce un post X (Saqr ne donne pas son adresse), ou None.
+
+    Les chiffres de la veille viennent du corps de l'article: sans lui, le contrôle de contenu les refuse.
+    """
+    title = source.get("titre")
+    query = ingest.arxiv_search_query(title)
+    if not query:
+        return None
+    try:
+        async with httpx.AsyncClient(timeout=ARXIV_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            response = await client.get(
+                ARXIV_API, params={"search_query": query, "max_results": 10},
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.info(f"[veille] recherche arXiv impossible ({type(exc).__name__})")
+        return None
+    ident = ingest.pick_arxiv_match(title, ingest.parse_arxiv_feed(response.text))
+    return f"https://arxiv.org/pdf/{ident}" if ident else None
+
+
 async def _read_source(
     source: Dict[str, Any], limiter: asyncio.Semaphore
 ) -> Tuple[str, str, str]:
@@ -111,6 +137,8 @@ async def _read_source(
     url, pdf_url = ingest.source_urls(source)
     if not url:
         return "", "", ""
+    if not pdf_url and ingest.is_short_form(source):
+        pdf_url = await _linked_arxiv_pdf(source)
     tasks = [_read(url, limiter)] + ([_read(pdf_url, limiter)] if pdf_url else [])
     (title, text), *rest = await asyncio.gather(*tasks)
     return title, text, (rest[0][1] if rest else "")

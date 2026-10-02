@@ -17,6 +17,7 @@ import unicodedata
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
+from xml.etree import ElementTree
 
 from open_notebook.podcasts.content_guard import SOURCES_DELIMITER
 
@@ -120,6 +121,67 @@ def source_urls(source: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     raw = (source.get("url") or "").strip()
     match = _ARXIV_ABS.search(raw) or _ARXIV_ABS.search(url)
     return url, (f"https://arxiv.org/pdf/{match.group(1)}" if match else None)
+
+
+_DISTINCT_TOKEN = re.compile(r"[a-z0-9][a-z0-9\-]{5,}")
+ARXIV_MIN_TOKENS = 5
+ARXIV_MIN_OVERLAP = 0.6
+_ATOM = "{http://www.w3.org/2005/Atom}"
+
+
+def _distinct_tokens(text: Optional[str]) -> set:
+    return set(_DISTINCT_TOKEN.findall(fold(text)))
+
+
+def arxiv_search_query(text: Optional[str]) -> Optional[str]:
+    """Requête arXiv à partir du texte d'un post X: trois termes au plus, expressions à trait d'union d'abord.
+
+    Mesuré le 02/10: la même requête en « OR » noie l'article parmi des travaux sans rapport; en « AND » il
+    figure dans les dix premiers résultats, et pick_arxiv_match tranche.
+    """
+    tokens = _distinct_tokens(text)
+    if len(tokens) < ARXIV_MIN_TOKENS:
+        return None
+    hyphenated = sorted((t for t in tokens if "-" in t), key=len, reverse=True)[:2]
+    plain = sorted((t for t in tokens if "-" not in t), key=len, reverse=True)[: 3 - len(hyphenated)]
+    return " AND ".join([f'all:"{t}"' for t in hyphenated] + [f"all:{t}" for t in plain])
+
+
+def parse_arxiv_feed(xml_text: str) -> List[Dict[str, str]]:
+    """Entrées (identifiant, titre, résumé) d'un flux Atom de l'API arXiv; flux illisible = aucune entrée."""
+    # Un flux Atom n'a jamais de DTD: en refuser une écarte les entités externes et les « billion laughs ».
+    if "<!DOCTYPE" in xml_text.upper() or "<!ENTITY" in xml_text.upper():
+        return []
+    try:
+        root = ElementTree.fromstring(xml_text)
+    except ElementTree.ParseError:
+        return []
+    entries = []
+    for entry in root.iter(f"{_ATOM}entry"):
+        ident = (entry.findtext(f"{_ATOM}id") or "").rsplit("/abs/", 1)[-1].strip()
+        if ident:
+            entries.append({
+                "id": ident,
+                "title": (entry.findtext(f"{_ATOM}title") or "").strip(),
+                "summary": (entry.findtext(f"{_ATOM}summary") or "").strip(),
+            })
+    return entries
+
+
+def pick_arxiv_match(text: Optional[str], entries: List[Dict[str, str]]) -> Optional[str]:
+    """Identifiant de l'article arXiv que le post annonce, ou None: jamais un article au hasard.
+
+    Le post doit retrouver au moins 60 % de ses mots distinctifs dans le titre et le résumé de l'article.
+    """
+    wanted = _distinct_tokens(text)
+    if len(wanted) < ARXIV_MIN_TOKENS:
+        return None
+    best, best_overlap = None, ARXIV_MIN_OVERLAP
+    for entry in entries:
+        overlap = len(wanted & _distinct_tokens(entry["title"] + " " + entry["summary"])) / len(wanted)
+        if overlap >= best_overlap:
+            best, best_overlap = entry["id"], overlap
+    return best
 
 
 def classify(
