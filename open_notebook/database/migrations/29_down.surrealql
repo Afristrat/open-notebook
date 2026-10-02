@@ -1,0 +1,6 @@
+-- Migration 29 (retour arriere): supprime le suivi des podcasts de veille de Saqr.
+--
+-- ATTENTION: aucun commentaire de fin de ligne (voir 29.surrealql).
+
+REMOVE INDEX IF EXISTS idx_veille_run_ref ON TABLE veille_run;
+REMOVE TABLE IF EXISTS veille_run;

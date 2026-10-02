@@ -57,6 +57,19 @@ services:
       # degrade l'analyse en insufficient_evidence. Designer ici un modele qui
       # respecte un schema. Vide = modele de transformation par defaut.
       - DIWAN_CONSUMER_ANALYSIS_MODEL=${DIWAN_CONSUMER_ANALYSIS_MODEL:-}
+      # Podcast quotidien de veille demande par Saqr. Deux jetons DISTINCTS, un par sens:
+      # SAQR_DIWAN_SOURCES_TOKEN (Diwan lit la veille publiee chez Saqr) et
+      # DIWAN_SAQR_PODCAST_TOKEN (Diwan rappelle Saqr). Le sens Saqr vers Diwan est
+      # authentifie par empreinte dans DIWAN_CONSUMER_TOKENS (entree saqr:...:empreinte).
+      # Vides = la fonction repond « echec » au rappel, jamais en silence.
+      - SAQR_DIWAN_SOURCES_TOKEN=${SAQR_DIWAN_SOURCES_TOKEN:-}
+      - DIWAN_SAQR_PODCAST_TOKEN=${DIWAN_SAQR_PODCAST_TOKEN:-}
+      - SAQR_VEILLE_SOURCES_URL=${SAQR_VEILLE_SOURCES_URL:-https://db.saqr.ma/functions/v1/veille-sources}
+      - SAQR_VEILLE_CALLBACK_URL=${SAQR_VEILLE_CALLBACK_URL:-https://db.saqr.ma/functions/v1/veille-podcast}
+      - SAQR_VEILLE_DEADLINE_MINUTES=${SAQR_VEILLE_DEADLINE_MINUTES:-70}
+      - SAQR_VEILLE_MAX_ATTEMPTS=${SAQR_VEILLE_MAX_ATTEMPTS:-5}
+      - SAQR_VEILLE_PAGE_URL_TEMPLATE=${SAQR_VEILLE_PAGE_URL_TEMPLATE:-}
+      - DIWAN_PUBLIC_URL=${DIWAN_PUBLIC_URL:-https://diwan.ai-mpower.com}
     volumes:
       - notebook_data:/app/data
     depends_on:

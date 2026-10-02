@@ -28,6 +28,7 @@ from api.routers import (
     chat,
     config,
     consumers_qalem,
+    consumers_saqr,
     credentials,
     embedding,
     embedding_rebuild,
@@ -61,6 +62,7 @@ from open_notebook.exceptions import (
     UnsupportedTypeException,
 )
 from open_notebook.utils.encryption import get_secret_from_env
+from open_notebook.veille.reconcile import reconcile_forever
 
 
 def _parse_cors_origins(raw: str) -> list[str]:
@@ -211,10 +213,14 @@ async def lifespan(app: FastAPI):
 
     logger.success("API initialization completed successfully")
 
+    # Reprise des podcasts de veille de Saqr: rappels non délivrés, échéances, jobs interrompus.
+    veille_task = asyncio.create_task(reconcile_forever())
+
     # Yield control to the application
     yield
 
     # Shutdown: cleanup if needed
+    veille_task.cancel()
     logger.info("API shutdown complete")
 
 
@@ -423,6 +429,7 @@ app.include_router(providers.router, prefix="/api", tags=["providers"])
 app.include_router(capabilities.router, prefix="/api", tags=["capabilities"])
 app.include_router(languages.router, prefix="/api", tags=["languages"])
 app.include_router(consumers_qalem.router, prefix="/api", tags=["consumers-qalem"])
+app.include_router(consumers_saqr.router, prefix="/api", tags=["consumers-saqr"])
 
 
 @app.get("/")

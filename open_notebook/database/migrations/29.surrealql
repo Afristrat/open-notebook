@@ -1,0 +1,35 @@
+-- Migration 29: suivi durable des podcasts de veille demandes par Saqr.
+--
+-- Une ligne par veille (ref = slug veille-AAAA-MM-JJ). La revision est le hachage
+-- du contenu publie par Saqr: meme ref + meme revision = meme demande (idempotence),
+-- meme ref + autre revision = conflit, sauf si l'essai precedent a echoue.
+--
+-- Le rappel vers Saqr est suivi ici (rappel_statut, rappel_tentatives) pour qu'un
+-- redemarrage du service ne perde jamais l'annonce d'un succes ou d'un echec.
+--
+-- ATTENTION: le runner retire les lignes qui COMMENCENT par -- puis joint tout le
+-- reste sur une seule ligne. Aucun commentaire de fin de ligne dans ce fichier.
+
+DEFINE TABLE IF NOT EXISTS veille_run SCHEMAFULL;
+DEFINE FIELD IF NOT EXISTS ref ON TABLE veille_run TYPE string;
+DEFINE FIELD IF NOT EXISTS revision ON TABLE veille_run TYPE string;
+DEFINE FIELD IF NOT EXISTS titre ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS date_publication ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS page_url ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS statut ON TABLE veille_run TYPE string DEFAULT 'accepte' ASSERT $value IN ['accepte', 'en_cours', 'pret', 'echec'];
+DEFINE FIELD IF NOT EXISTS etape ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS tentatives ON TABLE veille_run TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS job ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS episode ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS audio_url ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS duree_s ON TABLE veille_run TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS erreur ON TABLE veille_run TYPE option<string>;
+DEFINE FIELD IF NOT EXISTS rapport ON TABLE veille_run FLEXIBLE TYPE option<object>;
+DEFINE FIELD IF NOT EXISTS echeance ON TABLE veille_run TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS battement ON TABLE veille_run TYPE option<float>;
+DEFINE FIELD IF NOT EXISTS reprises ON TABLE veille_run TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS rappel_statut ON TABLE veille_run TYPE string DEFAULT 'a_envoyer' ASSERT $value IN ['a_envoyer', 'envoye', 'abandonne'];
+DEFINE FIELD IF NOT EXISTS rappel_tentatives ON TABLE veille_run TYPE int DEFAULT 0;
+DEFINE FIELD IF NOT EXISTS created ON TABLE veille_run TYPE datetime DEFAULT time::now();
+DEFINE FIELD IF NOT EXISTS updated ON TABLE veille_run TYPE datetime DEFAULT time::now();
+DEFINE INDEX IF NOT EXISTS idx_veille_run_ref ON TABLE veille_run COLUMNS ref UNIQUE;

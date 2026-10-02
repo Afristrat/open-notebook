@@ -16,6 +16,7 @@ from .embedding_commands import (
     rebuild_embeddings_command,
 )
 from .podcast_commands import generate_podcast_command
+from .saqr_commands import saqr_veille_podcast_command
 from .source_commands import process_source_command
 
 __all__ = [
@@ -27,5 +28,6 @@ __all__ = [
     # Other commands
     "consumer_ingest_source_command",
     "generate_podcast_command",
+    "saqr_veille_podcast_command",
     "process_source_command",
 ]

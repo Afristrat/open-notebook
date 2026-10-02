@@ -49,6 +49,8 @@ CONNECTION_REQUIRED = "CONNECTION_REQUIRED"
 OAUTH_STATE_INVALID = "OAUTH_STATE_INVALID"
 EXTERNAL_SOURCE_NOT_FOUND = "EXTERNAL_SOURCE_NOT_FOUND"
 PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+VEILLE_REVISION_CONFLICT = "VEILLE_REVISION_CONFLICT"
+VEILLE_NOT_FOUND = "VEILLE_NOT_FOUND"
 
 # (statut HTTP, message par defaut, rejouable)
 _CATALOG: Dict[str, tuple] = {
@@ -116,6 +118,12 @@ _CATALOG: Dict[str, tuple] = {
         "Le fournisseur documentaire est momentanement indisponible.",
         True,
     ),
+    VEILLE_REVISION_CONFLICT: (
+        409,
+        "Cette veille existe deja avec une autre revision et n'a pas echoue.",
+        False,
+    ),
+    VEILLE_NOT_FOUND: (404, "Cette veille est inconnue de Diwan.", False),
 }
 
 
