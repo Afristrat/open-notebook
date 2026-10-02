@@ -47,9 +47,15 @@ class TestCallback:
         assert await pipeline.deliver_callback(run) is True
         assert callbacks == [{
             "ref": REF, "revision": "rev1", "statut": "pret", "audio_url": "https://d/a",
-            "page_url": None, "duree_s": 681.8, "erreur": None,
+            "page_url": None, "duree_s": 682, "erreur": None,
         }]
         assert store.by_ref(REF)["rappel_statut"] == "envoye"
+
+    @pytest.mark.asyncio
+    async def test_the_veille_page_received_from_saqr_is_sent_back_as_page_url(self, store, callbacks):
+        run = store.add(statut="pret", audio_url="https://d/a", duree_s=540.4, page_url="https://saqr.ma/blog/veille/x")
+        await pipeline.deliver_callback(run)
+        assert callbacks[0]["page_url"] == "https://saqr.ma/blog/veille/x" and callbacks[0]["duree_s"] == 540
 
     @pytest.mark.asyncio
     async def test_a_failure_is_announced_with_its_reason_and_no_audio(self, store, callbacks):
@@ -95,6 +101,27 @@ class TestCallback:
         run = store.add(statut="echec", erreur="x", rappel_tentatives=pipeline.MAX_CALLBACK_ATTEMPTS_TOTAL - 1)
         await pipeline.deliver_callback(run, attempts=1)
         assert store.by_ref(REF)["rappel_statut"] == "abandonne"
+
+
+class TestSaqrResponses:
+    def test_a_refused_body_is_final_and_carries_the_reason_given_by_saqr(self):
+        import httpx
+
+        from open_notebook.veille import saqr_client
+
+        response = httpx.Response(400, json={"ok": False, "erreur": "duree_invalide"})
+        with pytest.raises(SaqrRejected, match="HTTP 400 : duree_invalide"):
+            saqr_client._check(response, "Le rappel")
+
+    def test_an_unknown_token_or_revision_is_final_but_a_503_is_replayed(self):
+        import httpx
+
+        from open_notebook.veille import saqr_client
+
+        with pytest.raises(SaqrRejected):
+            saqr_client._check(httpx.Response(404, json={"erreur": "revision_inconnue"}), "Le rappel")
+        with pytest.raises(SaqrUnavailable):
+            saqr_client._check(httpx.Response(503), "Le rappel")
 
 
 def _script(monkeypatch, outcomes, episode_id=None):
@@ -297,7 +324,7 @@ class TestRunVeille:
         monkeypatch.setattr(pipeline, "produce", done)
         store.add()
         await pipeline.run_veille(REF)
-        assert callbacks[0]["statut"] == "pret" and callbacks[0]["duree_s"] == 612.5
+        assert callbacks[0]["statut"] == "pret" and callbacks[0]["duree_s"] == 612
 
 
 class TestReconcile:

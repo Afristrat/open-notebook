@@ -71,11 +71,15 @@ def audio_url_for(episode_id: str) -> str:
 
 
 def page_url_for(run: Dict[str, Any]) -> Optional[str]:
-    """Page qui renvoie vers les plateformes d'écoute: modèle optionnel, absent tant qu'elle n'existe pas."""
+    """Page qui renvoie vers les plateformes d'écoute.
+
+    Modèle optionnel (SAQR_VEILLE_PAGE_URL_TEMPLATE) quand cette page existera chez Dīwān; d'ici là, la page
+    de la veille chez Saqr reçue dans la demande (elle porte déjà le lecteur), jamais une valeur vide.
+    """
     template = os.getenv("SAQR_VEILLE_PAGE_URL_TEMPLATE", "").strip()
-    if not template or not run.get("episode"):
-        return None
-    return template.format(ref=run["ref"], episode_id=run["episode"])
+    if template and run.get("episode"):
+        return template.format(ref=run["ref"], episode_id=run["episode"])
+    return run.get("page_url")
 
 
 def time_left(run: Dict[str, Any]) -> float:

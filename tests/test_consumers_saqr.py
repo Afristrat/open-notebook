@@ -117,6 +117,23 @@ class TestRequest:
         assert response.json()["statut"] == "accepte"
         assert len(submitted) == 2
 
+    def test_a_new_revision_of_a_finished_veille_restarts_the_production(self, client, submitted, store):
+        # Saqr corrige un paragraphe: l'ancien podcast est obsolète, la nouvelle version doit être produite.
+        client.post(URL, json=BODY, headers=_auth())
+        store.by_ref("veille-2026-10-02").update(statut="pret", audio_url="https://d/vieux")
+        response = client.post(URL, json={**BODY, "revision": "hash-2"}, headers=_auth())
+        assert response.status_code == 202
+        assert response.json()["revision"] == "hash-2" and response.json()["statut"] == "accepte"
+        assert "audio_url" not in store.by_ref("veille-2026-10-02")
+        assert len(submitted) == 2
+
+    def test_the_same_revision_of_a_finished_veille_is_idempotent(self, client, submitted, store):
+        client.post(URL, json=BODY, headers=_auth())
+        store.by_ref("veille-2026-10-02").update(statut="pret")
+        again = client.post(URL, json=BODY, headers=_auth())
+        assert again.status_code == 202 and again.json()["idempotent"] is True and again.json()["statut"] == "pret"
+        assert len(submitted) == 1
+
     def test_a_malformed_ref_is_refused(self, client):
         response = client.post(URL, json={**BODY, "ref": "demain"}, headers=_auth())
         assert response.status_code == 422

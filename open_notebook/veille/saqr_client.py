@@ -35,9 +35,20 @@ def _token(name: str) -> str:
     return value
 
 
+def _reason(response: httpx.Response) -> str:
+    """Raison donnée par Saqr (« duree_invalide », « audio_hote_refuse »…), si lisible; jamais un jeton."""
+    try:
+        body = response.json()
+        reason = str(body.get("erreur") or body.get("error") or "") if isinstance(body, dict) else ""
+    except ValueError:
+        reason = ""
+    return f" : {reason[:80]}" if reason else ""
+
+
 def _check(response: httpx.Response, what: str) -> None:
-    if response.status_code in (401, 403, 404):
-        raise SaqrRejected(f"{what} refusé par Saqr (HTTP {response.status_code}).")
+    # 400 = corps refusé, 404 = jeton faux ou révision non demandée: rejouer ne changerait rien.
+    if response.status_code in (400, 401, 403, 404):
+        raise SaqrRejected(f"{what} refusé par Saqr (HTTP {response.status_code}{_reason(response)}).")
     if response.status_code >= 400:
         raise SaqrUnavailable(f"{what} en erreur chez Saqr (HTTP {response.status_code}).")
 
@@ -81,6 +92,7 @@ def callback_payload(
         "statut": "pret" if ready else "echec",
         "audio_url": run.get("audio_url") if ready else None,
         "page_url": page_url if ready else None,
-        "duree_s": run.get("duree_s") if ready else None,
+        # Saqr attend une durée entière en secondes (exemple du contrat: 540).
+        "duree_s": int(round(run["duree_s"])) if ready and run.get("duree_s") is not None else None,
         "erreur": None if ready else (run.get("erreur") or "Échec de la production du podcast."),
     }

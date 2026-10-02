@@ -97,15 +97,18 @@ async def request_veille_podcast(
             if run is None:
                 raise
             return _accepted(request, run, idempotent=True)
-    elif run["statut"] == "echec":
+    elif run["statut"] in runs.ACTIVE and run["revision"] != body.revision:
+        # Dīwān travaille sur une autre version: Saqr ne compte pas l'essai et retente au passage suivant.
+        raise ConsumerAPIError(
+            VEILLE_REVISION_CONFLICT, details={"ref": body.ref, "revision": run["revision"]}
+        )
+    elif run["statut"] == "echec" or run["revision"] != body.revision:
+        # Essai précédent échoué (relançable), ou nouvelle version d'une veille déjà terminée:
+        # l'ancien podcast est obsolète, on repart sur la version demandée.
         await runs.relaunch_run(
             str(run["id"]), body.revision, body.titre, body.date_publication, body.url
         )
         run = await runs.get_run(body.ref)
-    elif run["revision"] != body.revision:
-        raise ConsumerAPIError(
-            VEILLE_REVISION_CONFLICT, details={"ref": body.ref, "revision": run["revision"]}
-        )
     else:
         return _accepted(request, run, idempotent=True)
 
