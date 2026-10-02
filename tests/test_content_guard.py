@@ -175,6 +175,15 @@ class TestScales:
         for line in ("Deux millions d'utilisateurs.", "2 millions d'utilisateurs."):
             assert cg.check_transcript([line], self.CORPUS).violations == [], line
 
+    def test_b_and_m_suffixes_glued_to_a_digit_are_scales(self):
+        # Régression du 02/10 : « Qwen3-VL-4B » (source) vs « 4 milliards de paramètres » (podcast).
+        corpus = "a judge, Qwen3-VL-4B, and a 7M model"
+        for line in ("Un juge de 4 milliards de paramètres.", "Un juge de quatre milliards de paramètres.",
+                     "Un modèle de 7 millions de paramètres."):
+            assert cg.check_transcript([line], corpus).violations == [], line
+        report = cg.check_transcript(["Un juge de 7 milliards de paramètres."], corpus)
+        assert any(v.kind == "nombre_absent" for v in report.violations)
+
     def test_a_scale_word_after_a_digit_is_not_counted_twice(self):
         assert cg.french_numbers("Plafonné à 3 milliards, soit 5 pour cent.") == []
 

@@ -125,6 +125,9 @@ _SCALES = (
     (re.compile(r"(\d+(?:\.\d+)?)\s?(?:billion|milliards?)\b", re.I), 10**9),
     (re.compile(r"(\d+(?:\.\d+)?)\s?(?:millions?)\b", re.I), 10**6),
     (re.compile(r"(\d+(?:\.\d+)?)\s?(?:thousand|mille)\b", re.I), 1000),
+    # Suffixe collé au chiffre, usage courant des articles d'IA : « Qwen3-VL-4B » = 4 milliards de paramètres.
+    (re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)B\b"), 10**9),
+    (re.compile(r"(?<![\w.])(\d+(?:\.\d+)?)M\b"), 10**6),
 )
 
 
