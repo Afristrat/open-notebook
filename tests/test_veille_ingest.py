@@ -87,6 +87,32 @@ class TestClassify:
         assert ingest.classify(ARXIV, "Argo-Bench", ARTICLE, {})[0] == ingest.INGEREE
 
 
+class TestPostText:
+    LONG_TITLE = ("160 CPU nodes. 30,000 CPU cores. 250 TB DRAM. 3 million sandbox instances per day, "
+                  "380,000+ concurrently at peak. This is the infrastructure that ran every RL traini…")
+
+    def test_an_x_post_read_too_short_falls_back_on_the_text_saqr_captured(self):
+        # Régression du 02/10: 71 caractères lus contre le texte complet relevé par Saqr.
+        source = {**X_POST, "titre": self.LONG_TITLE}
+        text, from_title = ingest.post_text(source, "X. It's what's happening, log in")
+        assert from_title and text == self.LONG_TITLE
+        assert ingest.classify(source, "", text, {})[0] == ingest.INGEREE
+
+    def test_an_x_post_read_in_full_keeps_what_dwan_read(self):
+        source = {**X_POST, "titre": "Court titre"}
+        assert ingest.post_text(source, "Le texte complet du post lu par Diwan, plus long que le titre.") == (
+            "Le texte complet du post lu par Diwan, plus long que le titre.", False)
+
+    def test_the_fallback_never_applies_to_a_source_that_is_not_an_x_post(self):
+        source = {**ARXIV, "titre": "Un titre très long " * 20}
+        assert ingest.post_text(source, "") == ("", False)
+
+    def test_both_x_hosts_are_short_form(self):
+        assert ingest.is_short_form({"url": "https://twitter.com/a/status/1"})
+        assert ingest.is_short_form({"url": "https://www.x.com/a/status/1"})
+        assert not ingest.is_short_form({"url": "https://arxiv.org/abs/1"})
+
+
 class TestMainText:
     def test_links_images_and_consent_banners_are_removed(self):
         raw = (

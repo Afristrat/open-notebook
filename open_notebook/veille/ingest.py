@@ -94,6 +94,26 @@ def french_date(ref: str) -> str:
     return f"{day} {MONTHS[month - 1]} {year}"
 
 
+def is_short_form(source: Dict[str, Any]) -> bool:
+    """Post X: texte court par nature, et X ne se laisse pas lire de façon fiable."""
+    host = urlparse(source.get("url") or "").netloc.lower().removeprefix("www.")
+    return host in ("x.com", "twitter.com")
+
+
+def post_text(source: Dict[str, Any], extracted: str) -> Tuple[str, bool]:
+    """Texte d'une source, avec repli sur le titre relevé par Saqr pour un post X.
+
+    Le titre d'un signal X chez Saqr EST le texte du post tel que Saqr l'a capturé. Si Dīwān n'obtient pas
+    plus que ce titre (le 02/10, 71 caractères contre 228), on prend le titre: sans lui, les chiffres de la
+    veille tirés de ce post n'ont plus de source et le contrôle de contenu refuse tout l'épisode.
+    Le repli ne vaut QUE pour les posts X: toute autre source doit être lue par Dīwān lui-même.
+    """
+    title = (source.get("titre") or "").strip()
+    if is_short_form(source) and len(title) > len((extracted or "").strip()):
+        return title, True
+    return extracted, False
+
+
 def source_urls(source: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """Adresse à lire (celle de l'éditeur si Saqr l'a résolue) et PDF complet d'un article arXiv."""
     url = (source.get("article_url") or source.get("url") or "").strip()
@@ -116,9 +136,7 @@ def classify(
     # « Abonnez-vous » n'est que le lien du menu.
     if len(text) < 3000 and any(m in low for m in PAYWALL_MARKERS):
         return PAYWALL, "marqueur de paywall ou d'accès refusé"
-    host = urlparse(source.get("url") or "").netloc.lower().removeprefix("www.")
-    short_form = host in ("x.com", "twitter.com")
-    if len(text) < (SHORT_FORM_MIN_CHARS if short_form else MIN_TEXT_CHARS):
+    if len(text) < (SHORT_FORM_MIN_CHARS if is_short_form(source) else MIN_TEXT_CHARS):
         return ECHEC, f"texte trop court ({len(text)} caractères)"
     expected = title_tokens(source.get("titre"))
     if expected:

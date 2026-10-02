@@ -69,8 +69,12 @@ Deux pièges rencontrés, à connaître avant toute opération Coolify sur cette
 - **Pas de reprise d'agence** (ex. une dépêche Reuters bloquée retrouvée chez un autre éditeur) : OpenSERP
   n'écoute aujourd'hui que sur le port local de l'hôte (127.0.0.1:7001, non vérifié depuis le conteneur), donc
   cette reprise n'est pas portée dans le dépôt. Une source bloquée compte comme altérée.
-- **Posts X** : seul le texte visible est lu. Un chiffre tiré de l'article que le post renvoie n'est pas retrouvé
-  tant que cet article n'est pas ingéré ; le contrôle refuse alors, c'est voulu.
+- **Posts X** : X ne se laisse pas lire de façon fiable (le 02/10, 71 caractères lus contre 228). Pour les seuls
+  posts X, quand Dīwān n'obtient pas plus que le titre relevé par Saqr, ce titre (qui est le texte du post tel que
+  Saqr l'a capturé) sert de texte de la source, et le rapport le dit (« texte du post relevé par Saqr »). Sans ce
+  repli, les chiffres de la veille tirés du post n'ont plus de source et le contrôle refuse tout l'épisode (essai de
+  bout en bout du 02/10, 5 tentatives refusées). Un chiffre tiré de l'ARTICLE que le post renvoie n'est toujours pas
+  retrouvé tant que cet article n'est pas ingéré ; le contrôle refuse alors, c'est voulu.
 - **`page_url`** : la page qui renvoie vers l'ensemble des plateformes n'existe pas encore chez Dīwān ;
   `SAQR_VEILLE_PAGE_URL_TEMPLATE` (vide par défaut) la renseignera. Le rappel envoie `null` d'ici là.
 - Les adresses audio sont publiques et non signées, comme le reste de `/api/podcasts/*` ; elles changeront si

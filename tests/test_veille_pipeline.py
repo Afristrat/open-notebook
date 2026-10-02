@@ -260,6 +260,29 @@ class TestProduce:
             await pipeline.produce(store.add(revision="rev1"))
 
 
+class TestReadSources:
+    @pytest.mark.asyncio
+    async def test_an_x_post_read_too_short_enters_the_corpus_with_the_text_saqr_captured(self, monkeypatch):
+        title = ("160 CPU nodes. 30,000 CPU cores. 250 TB DRAM. 3 million sandbox instances per day, "
+                 "380,000+ concurrently at peak. This is the infrastructure that ran every RL traini…")
+        sources = [
+            {"numero": 1, "titre": title, "url": "https://x.com/a/status/1", "plateforme": "X", "meta": "X, score 82"},
+            {"numero": 2, "titre": "Article numéro 2 sur les agents autonomes", "url": "https://exemple.org/2",
+             "plateforme": "RSS", "meta": "RSS"},
+        ]
+
+        async def fake_read(source, limiter):
+            if source["numero"] == 1:
+                return "", "X. It's what's happening", ""  # X ne se laisse pas lire: 25 caractères
+            return "", "", ""  # une source qui n'est pas un post X, illisible
+
+        monkeypatch.setattr(pipeline, "_read_source", fake_read)
+        results = await pipeline.read_sources(sources, "Fil conducteur.")
+        post, other = results
+        assert post.statut == ingest.INGEREE and "380,000+" in post.texte and "relevé par Saqr" in post.detail
+        assert other.statut == ingest.ECHEC and other.texte == ""
+
+
 class TestRunVeille:
     @pytest.mark.asyncio
     async def test_a_known_failure_is_recorded_and_announced(self, store, callbacks, monkeypatch):

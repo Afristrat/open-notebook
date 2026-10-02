@@ -124,7 +124,10 @@ async def read_sources(
     results: List[ingest.SourceResult] = []
     seen: Dict[int, str] = {}
     for source, (title, text, article) in zip(sources, reads):
+        text, from_saqr_title = ingest.post_text(source, text)  # post X: repli sur le texte relevé par Saqr
         statut, detail = ingest.classify(source, title, text, seen)
+        if from_saqr_title and statut == ingest.INGEREE:
+            detail += " (texte du post relevé par Saqr, X ne se lit pas)"
         number = int(source.get("numero") or len(results) + 1)
         result = ingest.SourceResult(
             n=number, statut=statut, detail=detail, titre=str(source.get("titre") or ""),
