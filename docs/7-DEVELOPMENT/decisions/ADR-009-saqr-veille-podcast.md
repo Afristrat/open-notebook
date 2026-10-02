@@ -46,6 +46,21 @@ Un consommateur « saqr » calqué sur la façade Qalem.
 - **Adresse audio** : `{DIWAN_PUBLIC_URL}/api/podcasts/episodes/{id}/audio` (HTTPS, lecture par plages,
   `HEAD` non supporté).
 
+## Mise en service (02/10/2026)
+
+Variables de l'application Coolify (`ohir87jvt32284sh6wfwhhz2`), toutes avec « disponible au build » à faux :
+
+| Variable | Rôle | Origine |
+|---|---|---|
+| `DIWAN_CONSUMER_TOKENS` | empreintes des consommateurs : `qalem:<org>:<empreinte>,saqr:saqr:<empreinte>` | coffre d'Amine (valeur d'origine) + empreinte SHA-256 de `SAQR_DIWAN_API_TOKEN` |
+| `SAQR_DIWAN_SOURCES_TOKEN` | Dīwān lit la veille chez Saqr | coffre |
+| `DIWAN_SAQR_PODCAST_TOKEN` | Dīwān rappelle Saqr (48 caractères) | coffre, identique au Vault de Saqr |
+
+Deux pièges rencontrés, à connaître avant toute opération Coolify sur cette application :
+
+1. **L'API Coolify 4.3.23 ne renvoie pas le champ `value`** des variables. Une valeur « lue » est donc vide, et un `PATCH` calculé à partir d'elle écrase la variable (incident du 02/10 : `DIWAN_CONSUMER_TOKENS` a été écrasée par la seule entrée `saqr`, rattrapée avant tout redémarrage grâce à la valeur d'origine conservée au coffre). Toujours écrire une valeur construite depuis le coffre, jamais depuis une lecture Coolify.
+2. **La configuration de l'application épingle `git_commit_sha`** sur un ancien commit (`fff6df1`). Un déploiement ou un redémarrage demandé par l'API construit ce commit, pas la tête de la branche ; seul un déploiement par le webhook (poussée sur `deploy-coolify`) construit le commit poussé. Pour appliquer une variable, pousser un commit, ne pas passer par l'API de déploiement.
+
 ## Conséquences et limites connues
 
 - Le contrôle de contenu reste le garde-fou factuel : il peut refuser toutes les relances, et l'issue est alors
