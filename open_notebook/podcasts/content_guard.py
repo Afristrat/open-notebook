@@ -19,6 +19,7 @@ import json
 import re
 import unicodedata
 from dataclasses import dataclass, field
+from decimal import Decimal
 from functools import partial
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
@@ -67,7 +68,8 @@ DATE_LINE_PREFIX = "date de la veille :"
 # car les sources sont souvent en anglais (« MIT license » justifie « licence MIT »).
 _FORBIDDEN = (
     ("prix", r"\bprix\b", r"\bprices?\b|\bpricing\b"),
-    ("tarif", r"\btarif(?:s|ication)?\b", r"\btariffs?\b|\brate card\b"),
+    # « API list-equivalent rates » (une source) justifie « tarifs API » ; « rate » seul (error rate) non.
+    ("tarif", r"\btarif(?:s|ication)?\b", r"\btariffs?\b|\brate cards?\b|\b(?:api|list)(?:[- ]equivalent)? rates?\b"),
     ("licence", r"\blicences?\b", r"\blicen[sc](?:e|es|ed|ing)\b"),
     ("appel d'offres", r"\bappels? d'offres?\b", r"\btenders?\b|\brequests? for proposals?\b|\brfps?\b"),
     ("canal de vente", r"\bcanau(?:x|l) de vente\b", r"\b(?:sales|distribution) channels?\b|\bresellers?\b"),
@@ -224,6 +226,18 @@ def french_numbers(text: str) -> List[Tuple[int, bool]]:
             else:
                 break
             i += 1
+        # « sept virgule cinq milliards » = 7,5 milliards : sans cette lecture, « cinq milliards »
+        # serait compté à part (5 000 000 000).
+        if tokens[i : i + 1] == ["virgule"]:
+            j, digits = i + 1, ""
+            while j < len(tokens) and tokens[j] in _UNITS and _UNITS[tokens[j]] < 10:
+                digits += str(_UNITS[tokens[j]])
+                j += 1
+            if digits and j < len(tokens) and tokens[j] in _MULTIPLIERS:
+                scaled = Decimal(f"{total + current}.{digits}") * _MULTIPLIERS[tokens[j]]
+                found.append((int(scaled), False))
+                i = j + 1
+                continue
         percent = tokens[i : i + 2] == ["pour", "cent"]
         if percent:
             i += 2

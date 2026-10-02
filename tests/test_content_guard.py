@@ -205,6 +205,23 @@ class TestSpelledNumbers:
         assert cg.french_numbers("soixante et onze et vingt et un") == [(71, False), (21, False)]
         assert cg.french_numbers("vingt pour cent") == [(20, True)]
 
+    def test_spelled_decimal_with_a_scale_is_one_number(self):
+        # Régression du 02/10 : « sept virgule cinq milliards » (7,5 milliards) comptait « cinq milliards ».
+        assert cg.french_numbers("sept virgule cinq milliards de lignes") == [(7500000000, False)]
+        assert cg.french_numbers("deux virgule cinq millions") == [(2500000, False)]
+        assert cg.french_numbers("deux virgule deux points") == [(2, False), (2, False)]
+        corpus = "a warehouse of 235 tables and 7.5 billion rows"
+        assert cg.check_transcript(["Un entrepôt de sept virgule cinq milliards de lignes."], corpus).violations == []
+        report = cg.check_transcript(["Un entrepôt de cinq milliards de lignes."], corpus)
+        assert any(v.kind == "nombre_absent" for v in report.violations)
+
+    def test_tarifs_api_is_backed_by_api_list_equivalent_rates_only(self):
+        # Régression du 02/10 : « tarifs API » (Saqr) vs « API list-equivalent rates » (source).
+        corpus = "a $777.72 cost at September 1, 2026 API list-equivalent rates"
+        assert cg.check_transcript(["Soit environ 777,72 dollars aux tarifs API."], corpus).violations == []
+        report = cg.check_transcript(["Les tarifs changent."], "the error rate dropped")
+        assert any(v.kind == "terme_commercial" for v in report.violations)
+
     def test_quatre_vingt_after_a_hundred_is_eighty_not_twenty_four(self):
         # Régression du 02/10 : « trois cent quatre-vingt mille » (380 000) était lu 324 000.
         assert cg.french_numbers("trois cent quatre-vingt mille") == [(380000, False)]
