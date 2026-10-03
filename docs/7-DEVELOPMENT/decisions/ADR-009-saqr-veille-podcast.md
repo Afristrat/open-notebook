@@ -85,7 +85,10 @@ Deux pièges rencontrés, à connaître avant toute opération Coolify sur cette
   `SAQR_VEILLE_PAGE_URL_TEMPLATE` (vide par défaut) la renseignera. Le rappel envoie `null` d'ici là.
 - Les adresses audio sont publiques et non signées, comme le reste de `/api/podcasts/*` ; elles changeront si
   l'authentification globale de Dīwān est activée.
-- Durée : le profil « Veille » vise 8 à 12 minutes (1 100 à 2 000 mots). Passer à 13–30 minutes est une décision
-  de produit, qui touche le briefing du profil et `word_range` du contrôle.
+- Durée : le profil « Veille » vise 8 à 12 minutes dans son briefing ; le contrôle accepte de 1 100 à 2 400 mots
+  (environ 8 à 14 minutes), plafond relevé le 03/10 (monologue de 2 027 à 2 193 mots refusé 5 fois sur 5 à 2 000).
+  Passer à 13–30 minutes est une décision de produit, qui touche le briefing du profil et `word_range` du contrôle.
+- Nombres : un montant décimal de la source (« $777.72 ») peut être dit arrondi (777 ou 778), ce n'est pas un chiffre
+  sans source ; tout autre nombre absent des sources reste refusé.
 - Voix : inchangées (profil de voix `veille`, voix Higgs). La demande de Saqr d'utiliser les voix de Qalem est
   traitée à part.

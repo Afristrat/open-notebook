@@ -376,3 +376,29 @@ class TestGuardNode:
 
         with pytest.raises(ValueError, match="corpus des sources"):
             await cg.content_guard_node(state)
+
+
+class TestRegressionOfTheDay03:
+    """Le 03/10, un monologue de 2 027 à 2 193 mots était refusé 5 fois sur 5, et « 777 » (de $777.72) aussi."""
+
+    CORPUS = "The tool costs $777.72 per month for the team plan."
+
+    def test_a_monologue_of_the_size_the_model_writes_is_accepted(self):
+        lines = ["mot " * 100] * 22
+        assert cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)).violations == []
+
+    def test_a_far_too_long_transcript_is_still_refused(self):
+        lines = ["mot " * 100] * 26
+        report = cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS))
+        assert [v.kind for v in report.violations] == ["duree_hors_cible"]
+
+    def test_a_source_decimal_said_rounded_in_words_is_accepted(self):
+        for line in ("Il coûte sept cent soixante-dix-sept dollars.", "Il coûte sept cent soixante-dix-huit dollars."):
+            assert cg.check_transcript([line], self.CORPUS).violations == []
+
+    def test_a_source_decimal_said_rounded_in_digits_is_accepted(self):
+        assert cg.check_transcript(["Il coûte 777 dollars par mois."], self.CORPUS).violations == []
+
+    def test_an_unrelated_number_is_still_refused(self):
+        report = cg.check_transcript(["Il coûte six cent quatre-vingt-dix dollars."], self.CORPUS)
+        assert [v.kind for v in report.violations] == ["nombre_absent"]
