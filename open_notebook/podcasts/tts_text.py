@@ -86,8 +86,11 @@ def pad_short(text: str) -> str:
 # « arXiv » est lu « archive » par les trois voix (22 lectures sur 24), et « arxive »,
 # « arkive », « ar-xive », « ArXiv » aussi ; « arksive » donne le son /ks/ attendu
 # (12 sur 12, transcrit « arcsive » ou « arctive »).
+# « Mehdi » : le moteur avale parfois le « é » (« Mdi ») dans un épisode ; « Médi » a été écouté et
+# validé par Amine (03/10/2026, parfait dans toutes les graphies essayées).
 _PRONUNCIATION_LEXICON = (
     (re.compile(r"\barxiv\b", re.IGNORECASE), "arksive"),
+    (re.compile(r"\bmehdi\b", re.IGNORECASE), "Médi"),
 )
 
 

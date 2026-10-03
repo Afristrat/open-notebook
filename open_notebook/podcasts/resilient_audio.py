@@ -34,6 +34,7 @@ from loguru import logger
 from podcast_creator.core import Dialogue
 from podcast_creator.nodes import combine_audio_node, generate_single_audio_clip
 
+from open_notebook.podcasts import arabic_name
 from open_notebook.podcasts.tts_text import has_lexicon_term, tts_text_variants
 from open_notebook.podcasts.voice_treatments import (
     alters_clip,
@@ -80,9 +81,14 @@ async def _generate_clip_with_language(info: Dict[str, Any], language: str) -> P
     La librairie ne transmet jamais `language` (son `tts_config` va au constructeur, pas à
     `agenerate_speech`) ; or la version validée de Rim et de Younes l'exige (voir `voice_treatments`).
     """
-    dialogue = info["dialogue"]
     clip_path = _clip_path(info["output_dir"], info["index"])
     clip_path.parent.mkdir(exist_ok=True, parents=True)
+    await _speak(info, info["dialogue"].dialogue, clip_path, language)
+    return clip_path
+
+
+async def _speak(info: Dict[str, Any], text: str, output_file: Path, language: Optional[str]) -> None:
+    """Un appel au moteur de voix, avec ou sans `language`, vers le fichier demandé."""
     tts_config = dict(info.get("tts_config") or {})
     api_key = tts_config.pop("api_key", None)
     base_url = tts_config.pop("base_url", None)
@@ -93,13 +99,48 @@ async def _generate_clip_with_language(info: Dict[str, Any], language: str) -> P
         base_url=base_url,
         **tts_config,
     )
+    extra = {"language": language} if language else {}
     await model.agenerate_speech(
-        text=dialogue.dialogue,
-        voice=info["voices"][dialogue.speaker],
-        output_file=clip_path,
-        language=language,
+        text=text,
+        voice=info["voices"][info["dialogue"].speaker],
+        output_file=output_file,
+        **extra,
     )
+
+
+async def _assemble_clip_with_arabic_name(info: Dict[str, Any], language: Optional[str]) -> Path:
+    """Réplique contenant « Hanaa » : parties françaises dans la voix, prénom en arabe (voir `arabic_name`)."""
+    clip_path = _clip_path(info["output_dir"], info["index"])
+    clip_path.parent.mkdir(exist_ok=True, parents=True)
+    voice = info["voices"][info["dialogue"].speaker]
+    work = Path(info["output_dir"]) / "arabic_name" / f"{info['index']:04d}"
+    work.mkdir(parents=True, exist_ok=True)
+    parts: List[Path] = []
+    try:
+        for number, (is_name, piece) in enumerate(arabic_name.split_around_name(info["dialogue"].dialogue)):
+            if is_name:
+                part = work / f"{number}.wav"
+                await arabic_name.fetch_name_clip(voice, part)
+            else:
+                part = work / f"{number}.mp3"
+                await _speak(info, arabic_name.pad_fragment(piece), part, language)
+            parts.append(part)
+        await arabic_name.assemble(parts, clip_path)
+    finally:
+        arabic_name.clean(work)
     return clip_path
+
+
+async def _generate_clip_with_arabic_name(info: Dict[str, Any], language: Optional[str]) -> Path:
+    """Prénom arabe ; si le point d'entrée arabe du moteur est en panne, la réplique reste dite en français
+    (« Hanaa » lu à la française) : un prénom approximatif vaut mieux qu'un épisode perdu."""
+    try:
+        return await _assemble_clip_with_arabic_name(info, language)
+    except Exception as exc:  # noqa: BLE001 - repli assumé, journalisé
+        logger.warning(f"[audio] prénom arabe impossible ({type(exc).__name__}: {str(exc)[:120]}), lecture française")
+        if language:
+            return await _generate_clip_with_language(info, language)
+        return await generate_single_audio_clip(info)
 
 
 # Seuil mesuré le 2026-10-01 : le moteur de voix produit par intermittence un clip
@@ -166,7 +207,11 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
 
     marker = _lexicon_marker(dialogue_info["output_dir"], index)
     treatment = treatment_for((dialogue_info.get("voices") or {}).get(dialogue.speaker))
-    needs_lexicon = has_lexicon_term(dialogue.dialogue) or alters_clip(treatment)
+    needs_lexicon = (
+        has_lexicon_term(dialogue.dialogue)
+        or arabic_name.has_arabic_name(dialogue.dialogue)
+        or alters_clip(treatment)
+    )
 
     if _is_valid_clip(clip_path):
         silence = await _longest_silence(clip_path)
@@ -199,7 +244,9 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
                 **dialogue_info,
                 "dialogue": Dialogue(speaker=dialogue.speaker, dialogue=text),
             }
-            if treatment.language:
+            if arabic_name.has_arabic_name(text):
+                path = await _generate_clip_with_arabic_name(info, treatment.language)
+            elif treatment.language:
                 path = await _generate_clip_with_language(info, treatment.language)
             else:
                 path = await generate_single_audio_clip(info)
