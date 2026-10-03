@@ -33,8 +33,8 @@ from open_notebook.veille.saqr_client import (
     post_callback,
 )
 
-EPISODE_PROFILE = "Veille"
-SPEAKER_PROFILE = "veille"
+EPISODE_PROFILE = os.environ.get("SAQR_VEILLE_EPISODE_PROFILE", "Veille-Eclaireurs")
+SPEAKER_PROFILE = os.environ.get("SAQR_VEILLE_SPEAKER_PROFILE", "veille-eclaireurs")
 GUARD_PREFIX = "Contrôle de contenu"
 EXTRACTION_CONCURRENCY = 4
 SOURCE_TIMEOUT_SECONDS = 150
