@@ -158,36 +158,24 @@ class TestMainText:
         assert "https://" not in text
         assert "agents fail on long tasks" in text
 
-    def test_the_length_is_bounded(self):
-        raw = ("Une phrase assez longue pour être conservée par le filtre de lignes courtes. " * 200)
-        assert len(ingest.main_text(raw)) <= ingest.MAX_SOURCE_CHARS
+    def test_the_whole_text_is_kept_without_any_truncation(self):
+        raw = ("Une phrase assez longue pour être conservée par le filtre de lignes courtes. " * 2000)
+        assert len(ingest.main_text(raw)) > 100_000
 
 
-class TestExcerpts:
-    NARRATIVE = "Un contrôleur atteint 71,5 % sur ProgramBench contre 58,0 % pour Codex."
+class TestSourceText:
+    def test_the_page_is_given_in_full(self):
+        page = "Une phrase assez longue pour être conservée par le filtre de lignes courtes. " * 500
+        assert len(ingest.build_source_text(page)) >= len(page.strip()) - 1
 
-    def test_sentences_carrying_the_numbers_of_the_veille_are_kept(self):
-        article = (
-            "On ProgramBench, the controller reaches 71.5 percent against 58.0 for Codex in our runs. "
-            "Related work on agents has been extensive over the last years of research in the field."
-        )
-        excerpt = ingest.article_excerpt(article, self.NARRATIVE)
-        assert "71.5" in excerpt
-        assert "Related work" not in excerpt
-
-    def test_nothing_is_added_when_no_number_matches(self):
-        assert ingest.article_excerpt("A long sentence without any figure that matters here at all.", self.NARRATIVE) == ""
-
-    def test_the_excerpt_stays_within_its_budget(self):
-        sentence = "The controller reaches 71.5 percent on the benchmark in this experiment %d. "
-        article = "".join(sentence % i for i in range(200))
-        assert len(ingest.article_excerpt(article, self.NARRATIVE)) <= ingest.EXTRACT_CHARS
-
-    def test_the_source_text_marks_the_extract_only_when_there_is_one(self):
+    def test_the_full_article_follows_the_page_when_it_is_distinct(self):
         article = "On ProgramBench, the controller reaches 71.5 percent against 58.0 for Codex in our runs."
-        with_extract = ingest.build_source_text(ARTICLE, self.NARRATIVE, article)
-        assert "[Extraits de l'article complet]" in with_extract and "71.5" in with_extract
-        assert "[Extraits" not in ingest.build_source_text(ARTICLE, self.NARRATIVE, "")
+        text = ingest.build_source_text(ARTICLE, article)
+        assert text.startswith(ARTICLE.strip()[:40]) and "[Article complet]" in text and "71.5" in text
+
+    def test_nothing_is_appended_without_an_article_or_when_it_is_already_in_the_page(self):
+        assert "[Article complet]" not in ingest.build_source_text(ARTICLE, "")
+        assert "[Article complet]" not in ingest.build_source_text(ARTICLE, ARTICLE)
 
 
 class TestContent:
@@ -197,16 +185,15 @@ class TestContent:
             meta="ARXIV, score 60", url="https://exemple.org", texte=text,
         )
 
-    def test_only_usable_sources_enter_the_corpus_and_the_guard_can_read_it(self):
-        results = [
-            self._result(1, ingest.INGEREE, "Premier texte lu par Diwan."),
-            self._result(2, ingest.ECHEC, "Ne doit pas entrer."),
-            self._result(3, ingest.REPRISE, "Troisième texte."),
+    def test_the_corpus_is_the_sources_read_in_the_notebook_and_the_guard_can_read_it(self):
+        sources = [
+            ("[Source 1] Titre 1 (ARXIV, score 60)", "Premier texte lu dans le notebook."),
+            ("[Source 3] Titre 3 (ARXIV, score 60)", "Troisième texte."),
         ]
-        content = ingest.build_content("veille-2026-10-02", "Corps de la veille.\n\n[^1]: note", results)
+        content = ingest.build_content("veille-2026-10-02", "Corps de la veille.\n\n[^1]: note", sources)
         corpus = cg.extract_corpus(content)
         assert "Premier texte" in corpus and "Troisième texte" in corpus
-        assert "Ne doit pas entrer" not in corpus
+        assert "[Source 1] Titre 1" in corpus
         assert "Date de la veille : 2 octobre 2026" in content
         assert "[^1]" not in content
 
@@ -229,11 +216,8 @@ class TestRegressionOfTheDay:
     ARTICLE_TEXT = "On ProgramBench, the controller reaches 71.5 percent with the new harness in our runs."
 
     def _guard(self, article_text):
-        text = ingest.build_source_text(self.ABSTRACT, self.NARRATIVE, article_text)
-        result = ingest.SourceResult(
-            n=2, statut=ingest.INGEREE, detail="", titre="Meta", editeur="X", meta="X", url="u", texte=text,
-        )
-        content = ingest.build_content("veille-2026-10-02", self.NARRATIVE, [result])
+        text = ingest.build_source_text(self.ABSTRACT, article_text)
+        content = ingest.build_content("veille-2026-10-02", self.NARRATIVE, [("[Source 2] Meta (X, X)", text)])
         return cg.check_transcript([self.LINE], cg.extract_corpus(content)).violations
 
     def test_refused_when_only_the_abstract_was_read(self):

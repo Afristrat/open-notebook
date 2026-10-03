@@ -36,8 +36,6 @@ BOILERPLATE = (
 )
 MIN_TEXT_CHARS = 300
 SHORT_FORM_MIN_CHARS = 80
-MAX_SOURCE_CHARS = 5000
-EXTRACT_CHARS = 3500
 MAX_ALTERATION = 0.10
 
 INGEREE = "ingeree"
@@ -235,7 +233,7 @@ def classify(
     return INGEREE, f"{len(text)} caractères"
 
 
-def main_text(raw: Optional[str], limit: int = MAX_SOURCE_CHARS) -> str:
+def main_text(raw: Optional[str]) -> str:
     """Texte principal d'une page: sans images ni liens, sans navigation ni consentement."""
     text = re.sub(r"!\[[^\]]*\]\([^)]*\)", " ", raw or "")
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
@@ -248,7 +246,7 @@ def main_text(raw: Optional[str], limit: int = MAX_SOURCE_CHARS) -> str:
             continue
         kept.append(line)
     body = "\n".join(kept)
-    return (body or (raw or ""))[:limit]
+    return body or (raw or "")
 
 
 def split_veille(markdown: str) -> str:
@@ -260,58 +258,24 @@ def split_veille(markdown: str) -> str:
     return markdown.rstrip()
 
 
-def _number_tokens(narrative: str) -> set:
-    tokens = set()
-    for match in re.finditer(r"\d+[.,]\d+|\d{2,}", narrative):
-        token = match.group(0)
-        tokens.update({token, token.replace(",", "."), token.replace(".", ",")})
-    return tokens
-
-
-def article_excerpt(
-    article_text: str, narrative: str, already: str = "", limit: int = EXTRACT_CHARS
-) -> str:
-    """Phrases de l'article qui portent les nombres cités par la veille (les plus riches d'abord)."""
-    tokens = _number_tokens(narrative)
-    sentences = re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", article_text or ""))
-    scored = []
-    for sentence in sentences:
-        if not 40 <= len(sentence) <= 400 or sentence in already:
-            continue
-        hits = {
-            t.replace(",", ".") for t in tokens
-            if re.search(r"(?<![\d.,])" + re.escape(t) + r"(?!\d)", sentence)
-        }
-        if hits:
-            scored.append((len(hits), -len(sentence), sentence))
-    chosen, size = [], 0
-    for _, _, sentence in sorted(scored, reverse=True):
-        if size + len(sentence) <= limit:
-            chosen.append(sentence)
-            size += len(sentence)
-    return "\n".join(chosen)
-
-
-def build_source_text(full_text: str, narrative: str, article_text: str = "") -> str:
-    """Texte transmis au modèle pour une source: début de page + extraits chiffrés de l'article complet."""
+def build_source_text(full_text: str, article_text: str = "") -> str:
+    """Texte intégral d'une source: la page lue, puis l'article complet quand il est distinct."""
     base = main_text(full_text)
-    pool = (article_text or "") + "\n" + (full_text if len(full_text or "") > len(base) else "")
-    excerpt = article_excerpt(pool, narrative, already=base)
-    return base + ("\n[Extraits de l'article complet]\n" + excerpt if excerpt else "")
+    article = main_text(article_text) if article_text else ""
+    return base + ("\n\n[Article complet]\n" + article if article and article not in base else "")
 
 
 def alteration_rate(results: List[SourceResult]) -> float:
     return sum(r.statut in ALTERED for r in results) / len(results) if results else 1.0
 
 
-def build_content(ref: str, markdown: str, results: List[SourceResult]) -> str:
-    """Contenu du podcast: fil conducteur de Saqr, date, puis les textes que Diwan a lus."""
+def build_content(ref: str, markdown: str, sources: List[Tuple[str, str]]) -> str:
+    """Contenu du podcast: fil conducteur de Saqr, date, puis les sources lues DANS le notebook.
+
+    `sources` = (titre, texte intégral) tels qu'enregistrés dans le notebook de la production.
+    """
     date = french_date(ref)
-    corpus = "\n\n".join(
-        f"[Source {r.n}] {r.titre} ({r.editeur}, {r.meta})\n{r.texte}"
-        for r in results
-        if r.statut in (INGEREE, REPRISE) and r.texte
-    )
+    corpus = "\n\n".join(f"{title}\n{text}" for title, text in sources)
     return (
         f"Veille du {date}. Fil conducteur de l'éditeur (jamais une source) :\n"
         f"{split_veille(markdown)}\n\nDate de la veille : {date}\n\n"

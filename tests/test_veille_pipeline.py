@@ -30,6 +30,19 @@ def store(monkeypatch):
 
 
 @pytest.fixture
+def notebook(monkeypatch):
+    """Faux notebook: store_notebook relit ce qu'il a enregistré, comme la vraie fonction."""
+    saved = {}
+
+    async def fake_store(ref, results):
+        saved[ref] = results
+        return "notebook:test", [(pipeline.source_title(r), r.texte) for r in results]
+
+    monkeypatch.setattr(pipeline, "store_notebook", fake_store)
+    return saved
+
+
+@pytest.fixture
 def callbacks(monkeypatch):
     sent = []
 
@@ -259,7 +272,7 @@ class TestProvidedTextOfSaqr:
             return "", "", ""
 
         monkeypatch.setattr(pipeline, "_read_source", unreadable)
-        results = await pipeline.read_sources(self.SOURCES, "Fil conducteur.")
+        results = await pipeline.read_sources(self.SOURCES)
         assert [r.statut for r in results] == [ingest.INGEREE, ingest.INGEREE, ingest.ECHEC]
         assert "texte_complet fourni par Saqr" in results[0].detail
         assert "1.1" in results[0].texte and "1.2" in results[0].texte
@@ -271,14 +284,14 @@ class TestProvidedTextOfSaqr:
             return source["titre"], "Abonnez-vous pour lire la suite de cet article.", ""
 
         monkeypatch.setattr(pipeline, "_read_source", paywalled)
-        results = await pipeline.read_sources(self.SOURCES[:2], "Fil conducteur.")
+        results = await pipeline.read_sources(self.SOURCES[:2])
         assert [r.statut for r in results] == [ingest.INGEREE, ingest.INGEREE]
 
 
 class TestProduce:
     @pytest.mark.asyncio
-    async def test_the_content_carries_the_sources_diwan_read_and_the_episode_is_named_by_date(
-        self, store, monkeypatch
+    async def test_the_content_is_read_from_the_notebook_and_the_episode_is_named_by_date(
+        self, store, notebook, monkeypatch
     ):
         async def fake_fetch(ref):
             return _piece()
@@ -294,10 +307,12 @@ class TestProduce:
         await pipeline.produce(store.add())
         assert captured["name"] == "Veille Saqr 2026-10-02"
         assert "=== SOURCES INGÉRÉES ===" in captured["content"]
+        assert all(pipeline.source_title(r) in captured["content"] for r in notebook[REF])
         assert store.by_ref(REF)["rapport"]["taux_alteration"] == 0.0
+        assert store.by_ref(REF)["rapport"]["notebook"] == "notebook:test"
 
     @pytest.mark.asyncio
-    async def test_more_than_ten_percent_unusable_sources_means_no_podcast(self, store, monkeypatch):
+    async def test_more_than_ten_percent_unusable_sources_means_no_podcast(self, store, notebook, monkeypatch):
         async def fake_fetch(ref):
             return _piece()
 
@@ -311,6 +326,25 @@ class TestProduce:
             await pipeline.produce(store.add())
         report = store.by_ref(REF)["rapport"]
         assert report["exploitables"] == 1 and report["taux_alteration"] > ingest.MAX_ALTERATION
+        assert len(notebook[REF]) == 1  # le notebook existe même quand la production échoue
+
+    @pytest.mark.asyncio
+    async def test_without_a_notebook_there_is_no_podcast(self, store, monkeypatch):
+        async def fake_fetch(ref):
+            return _piece()
+
+        async def broken(ref, results):
+            raise RuntimeError("base indisponible")
+
+        async def never(*args):
+            raise AssertionError("aucune génération attendue")
+
+        monkeypatch.setattr(pipeline, "fetch_piece", fake_fetch)
+        monkeypatch.setattr(pipeline, "store_notebook", broken)
+        monkeypatch.setattr(pipeline, "generate", never)
+        _scripted_reads(monkeypatch, {1, 2, 3})
+        with pytest.raises(pipeline.ProductionFailed, match="Notebook"):
+            await pipeline.produce(store.add())
 
     @pytest.mark.asyncio
     async def test_a_changed_revision_is_refused(self, store, monkeypatch):
@@ -320,6 +354,91 @@ class TestProduce:
         monkeypatch.setattr(pipeline, "fetch_piece", fake_fetch)
         with pytest.raises(pipeline.ProductionFailed, match="révision"):
             await pipeline.produce(store.add(revision="rev1"))
+
+
+@pytest.fixture
+def world(monkeypatch):
+    """Notebooks et sources en mémoire (mêmes méthodes que open_notebook.domain.notebook)."""
+    by_name, by_id, members, indexed = {}, {}, {}, []
+
+    class FakeSource:
+        def __init__(self, title, full_text, topics=None, asset=None):
+            self.title, self.full_text, self.asset = title, full_text, asset
+
+        async def save(self):
+            pass
+
+        async def add_to_notebook(self, notebook_id):
+            members[notebook_id].append(self)
+
+        async def vectorize(self):
+            indexed.append(self.title)
+
+    class FakeNotebook:
+        def __init__(self, name, description):
+            self.name, self.description, self.id = name, description, None
+
+        @classmethod
+        async def get(cls, notebook_id):
+            return by_id[notebook_id]
+
+        async def save(self):
+            self.id = f"notebook:{len(by_id) + 1}"
+            by_name[self.name], by_id[self.id], members[self.id] = self, self, []
+
+        async def get_sources(self, include_full_text=False):
+            return list(members[self.id])
+
+    async def fake_query(query, params=None):
+        found = by_name.get(params["name"])
+        return [{"id": found.id}] if found else []
+
+    monkeypatch.setattr(pipeline, "Notebook", FakeNotebook)
+    monkeypatch.setattr(pipeline, "Source", FakeSource)
+    monkeypatch.setattr(pipeline, "repo_query", fake_query)
+    return type("World", (), {"members": members, "by_name": by_name, "indexed": indexed, "source": FakeSource})
+
+
+def _result(number, text):
+    return ingest.SourceResult(
+        n=number, statut=ingest.INGEREE, detail="", titre=f"Titre {number}", editeur="ARXIV",
+        meta="ARXIV, score 60", url=f"https://exemple.org/{number}", texte=text,
+    )
+
+
+class TestStoreNotebook:
+    @pytest.mark.asyncio
+    async def test_every_source_is_stored_in_full_in_the_notebook_of_the_day_and_read_back(self, world):
+        long_text = "Une phrase de la source, assez longue pour compter. " * 1200  # ~62 000 caractères
+        notebook_id, stored = await pipeline.store_notebook(REF, [_result(1, long_text), _result(2, "Court.")])
+        assert world.by_name["Veille Saqr 2026-10-02"].id == notebook_id
+        assert [text for _, text in stored] == [long_text, "Court."]
+        assert [s.full_text for s in world.members[notebook_id]] == [long_text, "Court."]
+        assert world.members[notebook_id][0].asset is not None
+        assert len(world.indexed) == 2
+
+    @pytest.mark.asyncio
+    async def test_a_replay_reuses_the_notebook_and_updates_only_what_changed(self, world):
+        first_id, _ = await pipeline.store_notebook(REF, [_result(1, "Texte A."), _result(2, "Texte B.")])
+        world.indexed.clear()
+        second_id, stored = await pipeline.store_notebook(REF, [_result(1, "Texte A."), _result(2, "Texte B2.")])
+        assert second_id == first_id and len(world.members[first_id]) == 2
+        assert [text for _, text in stored] == ["Texte A.", "Texte B2."]
+        assert world.indexed == [pipeline.source_title(_result(2, ""))]
+
+    @pytest.mark.asyncio
+    async def test_an_indexing_failure_never_blocks_the_notebook(self, world, monkeypatch):
+        async def broken_index(self):
+            raise RuntimeError("pas de modèle d'embedding")
+
+        monkeypatch.setattr(world.source, "vectorize", broken_index)
+        _, stored = await pipeline.store_notebook(REF, [_result(1, "Texte A.")])
+        assert [text for _, text in stored] == ["Texte A."]
+
+    @pytest.mark.asyncio
+    async def test_a_source_without_text_in_the_notebook_is_refused(self, world):
+        with pytest.raises(pipeline.ProductionFailed, match="absente"):
+            await pipeline.store_notebook(REF, [_result(1, "")])
 
 
 class TestReadSources:
@@ -339,7 +458,7 @@ class TestReadSources:
             return "", "", ""  # une source qui n'est pas un post X, illisible
 
         monkeypatch.setattr(pipeline, "_read_source", fake_read)
-        results = await pipeline.read_sources(sources, "Fil conducteur.")
+        results = await pipeline.read_sources(sources)
         post, other = results
         assert post.statut == ingest.INGEREE and "380,000+" in post.texte and "relevé par Saqr" in post.detail
         assert other.statut == ingest.ECHEC and other.texte == ""

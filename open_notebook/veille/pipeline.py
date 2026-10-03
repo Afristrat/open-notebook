@@ -20,6 +20,7 @@ from surreal_commands import submit_command
 
 from api.podcast_service import PodcastService
 from open_notebook.database.repository import ensure_record_id, repo_query
+from open_notebook.domain.notebook import Asset, Notebook, Source
 from open_notebook.graphs.source import content_process
 from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
 from open_notebook.utils.url_validation import validate_url
@@ -152,9 +153,7 @@ async def _read_source(
     return title, text, (rest[0][1] if rest else "")
 
 
-async def read_sources(
-    sources: List[Dict[str, Any]], narrative: str
-) -> List[ingest.SourceResult]:
+async def read_sources(sources: List[Dict[str, Any]]) -> List[ingest.SourceResult]:
     limiter = asyncio.Semaphore(EXTRACTION_CONCURRENCY)
     reads = await asyncio.gather(*(_read_source(s, limiter) for s in sources))
     results: List[ingest.SourceResult] = []
@@ -182,11 +181,58 @@ async def read_sources(
             url=ingest.source_urls(source)[0],
         )
         if statut in (ingest.INGEREE, ingest.REPRISE):
-            result.texte = ingest.build_source_text(text, narrative, article)
+            result.texte = ingest.build_source_text(text, article)
         if statut == ingest.INGEREE:
             seen[number] = ingest.fold(text[:1200])
         results.append(result)
     return results
+
+
+# --- notebook --------------------------------------------------------------
+
+
+def source_title(result: ingest.SourceResult) -> str:
+    return f"[Source {result.n}] {result.titre} ({result.editeur}, {result.meta})"
+
+
+async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[str, List[Tuple[str, str]]]:
+    """Enregistre les sources INTÉGRALES de la production dans son notebook, puis les en relit.
+
+    Le podcast puise ses informations dans ce notebook (exigence d'Amine, 03/10): un notebook par
+    veille, créé dès la lecture des sources, que la pièce soit publiée chez Saqr ou encore en brouillon.
+    Idempotent: un rejeu réutilise le notebook et met à jour les sources de même titre.
+    """
+    name = f"Veille Saqr {ingest.date_of_ref(ref)}"
+    found = await repo_query("SELECT id FROM notebook WHERE name = $name", {"name": name})
+    if found:
+        notebook = await Notebook.get(str(found[0]["id"]))
+    else:
+        notebook = Notebook(name=name, description=f"Sources intégrales de la veille Saqr du {ingest.french_date(ref)}.")
+        await notebook.save()
+    existing = {s.title: s for s in await notebook.get_sources(include_full_text=True)}
+    titles: List[str] = []
+    for result in results:
+        title = source_title(result)
+        titles.append(title)
+        source = existing.get(title)
+        if source is None:
+            source = Source(title=title, full_text=result.texte, topics=[], asset=Asset(url=result.url or None))
+            await source.save()
+            await source.add_to_notebook(str(notebook.id))
+        elif source.full_text != result.texte:
+            source.full_text = result.texte
+            await source.save()
+        else:
+            continue
+        try:
+            await source.vectorize()  # recherche dans le notebook; le podcast, lui, lit le texte intégral
+        except Exception as exc:  # noqa: BLE001 - l'indexation est un confort, jamais un motif d'échec
+            logger.warning(f"[veille] indexation de « {title[:40]} » impossible ({type(exc).__name__})")
+    stored = {s.title: s.full_text or "" for s in await notebook.get_sources(include_full_text=True)}
+    missing = [t for t in titles if not stored.get(t)]
+    if missing:
+        raise ProductionFailed(f"{len(missing)} source(s) absente(s) du notebook après enregistrement.")
+    return str(notebook.id), [(t, stored[t]) for t in titles]
 
 
 # --- génération ------------------------------------------------------------
@@ -326,11 +372,19 @@ async def produce(run: Dict[str, Any]) -> None:
 
     markdown = piece["contenu"]
     await runs.update_run(run_id, etape="sources")
-    results = await read_sources(piece["sources"], ingest.split_veille(markdown))
+    results = await read_sources(piece["sources"])
     rate = ingest.alteration_rate(results)
+    usable = [r for r in results if r.statut in (ingest.INGEREE, ingest.REPRISE) and r.texte]
+    try:
+        notebook_id, stored = await store_notebook(run["ref"], usable)
+    except ProductionFailed:
+        raise
+    except Exception as exc:  # noqa: BLE001 - sans notebook, pas de podcast: le notebook est obligatoire
+        raise ProductionFailed(f"Notebook de la production impossible : {sanitize(str(exc))}") from exc
     await runs.update_run(
         run_id,
         rapport={
+            "notebook": notebook_id,
             "sources": len(results),
             "exploitables": sum(r.statut in (ingest.INGEREE, ingest.REPRISE) for r in results),
             "taux_alteration": round(rate, 3),
@@ -342,7 +396,7 @@ async def produce(run: Dict[str, Any]) -> None:
             f"{round(rate * 100)} % des sources sont inexploitables "
             f"(plafond {round(ingest.MAX_ALTERATION * 100)} %) : pas de podcast."
         )
-    content = ingest.build_content(run["ref"], markdown, results)
+    content = ingest.build_content(run["ref"], markdown, stored)
     await generate(run, content, f"Veille Saqr {ingest.date_of_ref(run['ref'])}")
 
 
