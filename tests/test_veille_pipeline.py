@@ -125,9 +125,10 @@ class TestSaqrResponses:
 
 
 def _script(monkeypatch, outcomes, episode_id=None, output_dir=None):
-    calls = {"submits": [], "finalized": []}
+    calls = {"submits": [], "finalized": [], "suffixes": []}
 
-    async def fake_submit(name, content, resume_episode_id):
+    async def fake_submit(name, content, resume_episode_id, briefing_suffix=None):
+        calls["suffixes"].append(briefing_suffix)
         calls["submits"].append(resume_episode_id)
         return f"command:{len(calls['submits'])}"
 
@@ -157,6 +158,17 @@ class TestGenerate:
         assert calls["submits"] == [None, None]
         assert calls["finalized"] == ["command:2"]
         assert store.by_ref(REF)["tentatives"] == 2
+
+    @pytest.mark.asyncio
+    async def test_the_refusal_reason_is_sent_to_the_next_attempt_only(self, store, monkeypatch):
+        """Relancer à l'identique ne change rien (03/10 : Hanae restait à 14-18 % sur 10 essais)."""
+        calls = _script(monkeypatch, [
+            {"status": "failed", "error_message": GUARD_REFUSAL}, {"status": "completed"},
+        ])
+        await pipeline.generate(store.add(), "contenu", "n")
+        first, second = calls["suffixes"]
+        assert first is None
+        assert "REFUSÉE" in second and GUARD_REFUSAL[len(pipeline.GUARD_PREFIX):].strip(" :") in second
 
     @pytest.mark.asyncio
     async def test_a_voice_outage_resumes_the_same_episode_at_the_clip(self, store, monkeypatch, tmp_path):

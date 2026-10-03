@@ -181,13 +181,29 @@ async def read_sources(
 # --- génération ------------------------------------------------------------
 
 
-async def _submit(name: str, content: str, resume_episode_id: Optional[str]) -> str:
+async def _submit(
+    name: str, content: str, resume_episode_id: Optional[str], briefing_suffix: Optional[str] = None
+) -> str:
     return await PodcastService.submit_generation_job(
         episode_profile_name=EPISODE_PROFILE,
         speaker_profile_name=SPEAKER_PROFILE,
         episode_name=name,
         content=content,
+        briefing_suffix=briefing_suffix,
         resume_episode_id=resume_episode_id,
+    )
+
+
+def refusal_feedback(error: str) -> str:
+    """Consigne de l'essai suivant: le motif exact du refus du contrôle, à corriger point par point.
+
+    Constaté le 03/10 : relancer à l'identique ne change rien (Hanae restait à 14-18 % sur 10 essais).
+    """
+    reasons = error[len(GUARD_PREFIX):].lstrip(" :")
+    return (
+        "La transcription précédente a été REFUSÉE par le contrôle de contenu. Écris une nouvelle "
+        f"transcription qui corrige exactement ces points : {reasons}. Quand une part de parole est en "
+        "défaut, donne plus de répliques à l'intervenant concerné, en les retirant à celui qui en a trop."
     )
 
 
@@ -246,12 +262,17 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
     run_id = str(run["id"])
     resume_episode_id: Optional[str] = None
     last_error = ""
+    feedback: Optional[str] = None
     limit = max_attempts()
     for attempt in range(1, limit + 1):
         if time_left(run) <= 0:
             raise ProductionFailed("Délai de production dépassé avant une nouvelle tentative.")
         await runs.update_run(run_id, tentatives=attempt, etape=f"generation {attempt}/{limit}")
-        job = await _submit(name, content, resume_episode_id)
+        job = await (
+            _submit(name, content, resume_episode_id, briefing_suffix=feedback)
+            if feedback
+            else _submit(name, content, resume_episode_id)
+        )
         await runs.update_run(run_id, job=job)
         status = await _wait(job, run)
         if status.get("status") == "completed":
@@ -261,6 +282,7 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
         logger.info(f"[veille] {run['ref']} essai {attempt}/{limit} échoué : {sanitize(last_error)}")
         if last_error.startswith(GUARD_PREFIX):
             resume_episode_id = None  # le texte était mauvais: on repart d'une nouvelle transcription
+            feedback = refusal_feedback(sanitize(last_error))  # ... qui corrige le motif du refus
             continue
         episode = await _episode_of(job)  # panne de voix: reprendre l'épisode au clip près
         resume_episode_id = str(episode["id"]) if episode and _is_resumable(episode) else None
