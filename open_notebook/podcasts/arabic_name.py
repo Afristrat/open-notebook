@@ -20,6 +20,8 @@ from typing import List, Tuple
 import httpx
 from loguru import logger
 
+from open_notebook.podcasts.tts_text import normalize_for_tts
+
 NAME = re.compile(r"\bHanaa\b", re.IGNORECASE)
 CARRIER = "معنا هناء"
 DEFAULT_URL = "http://192.168.100.20:7861/tts"
@@ -63,6 +65,18 @@ def pad_fragment(text: str) -> str:
     if len(stripped) >= MIN_FRAGMENT_CHARS:
         return text
     return re.sub(r"[\s,;:]+$", "", stripped) + " ..."
+
+
+def fragment_candidates(piece: str) -> List[str]:
+    """Écritures à essayer, dans l'ordre, pour une partie française (HTTP 500 du moteur sur certains fragments,
+    ex. débutant par une virgule) : telle quelle, sans ponctuation en bordure, puis normalisée."""
+    stripped = piece.strip(" ,;:")
+    candidates: List[str] = []
+    for text in (piece, stripped, normalize_for_tts(stripped)):
+        padded = pad_fragment(text) if re.search(r"\w", text) else ""
+        if padded and padded not in candidates:
+            candidates.append(padded)
+    return candidates
 
 
 def _rms(data: array.array, start: int) -> float:

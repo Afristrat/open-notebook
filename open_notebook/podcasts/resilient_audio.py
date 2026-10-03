@@ -118,12 +118,16 @@ async def _assemble_clip_with_arabic_name(info: Dict[str, Any], language: Option
     parts: List[Path] = []
     try:
         for number, (is_name, piece) in enumerate(arabic_name.split_around_name(info["dialogue"].dialogue)):
-            if is_name:
-                part = work / f"{number}.wav"
-                await arabic_name.fetch_name_clip(voice, part)
-            else:
-                part = work / f"{number}.mp3"
-                await _speak(info, arabic_name.pad_fragment(piece), part, language)
+            step = "prénom arabe" if is_name else f"fragment « {piece.strip()[:50]} »"
+            try:
+                if is_name:
+                    part = work / f"{number}.wav"
+                    await arabic_name.fetch_name_clip(voice, part)
+                else:
+                    part = work / f"{number}.mp3"
+                    await _speak_fragment(info, piece, part, language)
+            except Exception as exc:  # noqa: BLE001 - on ajoute l'étape fautive au message
+                raise RuntimeError(f"étape {number + 1}, {step} : {str(exc)[:160]}") from exc
             parts.append(part)
         await arabic_name.assemble(parts, clip_path)
     finally:
@@ -131,16 +135,39 @@ async def _assemble_clip_with_arabic_name(info: Dict[str, Any], language: Option
     return clip_path
 
 
+async def _speak_fragment(info: Dict[str, Any], piece: str, part: Path, language: Optional[str]) -> None:
+    """Une partie française d'une réplique à prénom arabe : plusieurs écritures, le moteur refusant (HTTP 500)
+    certains fragments courts ou débutant par de la ponctuation."""
+    last_error: Optional[BaseException] = None
+    for text in arabic_name.fragment_candidates(piece):
+        try:
+            await _speak(info, text, part, language)
+            return
+        except Exception as exc:  # noqa: BLE001 - on tente l'écriture suivante
+            last_error = exc
+            logger.info(f"[audio] fragment « {text[:40]} » refusé ({str(exc)[:80]}), autre écriture")
+    raise last_error or RuntimeError("fragment sans lettre")
+
+
+# Essais de l'assemblage d'une réplique à prénom arabe, avant de la laisser en français.
+ARABIC_NAME_ATTEMPTS = 3
+
+
 async def _generate_clip_with_arabic_name(info: Dict[str, Any], language: Optional[str]) -> Path:
-    """Prénom arabe ; si le point d'entrée arabe du moteur est en panne, la réplique reste dite en français
-    (« Hanaa » lu à la française) : un prénom approximatif vaut mieux qu'un épisode perdu."""
-    try:
-        return await _assemble_clip_with_arabic_name(info, language)
-    except Exception as exc:  # noqa: BLE001 - repli assumé, journalisé
-        logger.warning(f"[audio] prénom arabe impossible ({type(exc).__name__}: {str(exc)[:120]}), lecture française")
-        if language:
-            return await _generate_clip_with_language(info, language)
-        return await generate_single_audio_clip(info)
+    """Prénom arabe, réessayé ; si le point d'entrée arabe du moteur reste en panne, la réplique est dite en
+    français (« Hanaa » lu à la française) : un prénom approximatif vaut mieux qu'un épisode perdu."""
+    where = f"clip {info['index']:04d} ({info['dialogue'].speaker})"
+    for attempt in range(1, ARABIC_NAME_ATTEMPTS + 1):
+        try:
+            return await _assemble_clip_with_arabic_name(info, language)
+        except Exception as exc:  # noqa: BLE001 - réessayé puis repli assumé, journalisé
+            logger.warning(f"[audio] {where} : prénom arabe, essai {attempt}/{ARABIC_NAME_ATTEMPTS} en échec ({exc})")
+            if attempt < ARABIC_NAME_ATTEMPTS:
+                await asyncio.sleep(2 * attempt)
+    logger.warning(f"[audio] {where} : prénom arabe impossible après {ARABIC_NAME_ATTEMPTS} essais, lecture française")
+    if language:
+        return await _generate_clip_with_language(info, language)
+    return await generate_single_audio_clip(info)
 
 
 # Seuil mesuré le 2026-10-01 : le moteur de voix produit par intermittence un clip

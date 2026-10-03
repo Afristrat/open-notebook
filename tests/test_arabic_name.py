@@ -14,6 +14,7 @@ from types import SimpleNamespace
 from typing import Any, Dict, List
 
 import pytest
+from loguru import logger
 from podcast_creator.core import Dialogue
 
 from open_notebook.podcasts import arabic_name as an
@@ -57,6 +58,17 @@ class TestSplit:
         assert an.pad_fragment("Merci ") == "Merci ..."
         assert an.pad_fragment("Oui, ") == "Oui ..."
         assert an.pad_fragment(", qu'en penses-tu ?") == ", qu'en penses-tu ?"
+
+
+class TestFragmentCandidates:
+    def test_the_fragment_is_tried_as_is_then_without_edge_punctuation(self):
+        assert an.fragment_candidates(", qu'en penses-tu ?")[:2] == [", qu'en penses-tu ?", "qu'en penses-tu ?"]
+
+    def test_a_short_fragment_has_a_single_padded_writing(self):
+        assert an.fragment_candidates("Merci ") == ["Merci ..."]
+
+    def test_punctuation_alone_has_no_writing(self):
+        assert an.fragment_candidates(" ... ") == []
 
 
 class TestCut:
@@ -197,20 +209,73 @@ class TestClipWithArabicName:
         assert ("assemble", [".wav", ".mp3", ".wav", ".mp3"]) in chain.events
 
     @pytest.mark.asyncio
-    async def test_a_broken_arabic_endpoint_leaves_the_reply_in_french_instead_of_losing_the_episode(
+    async def test_a_broken_arabic_endpoint_is_retried_then_leaves_the_reply_in_french_and_is_logged(
         self, tmp_path, chain, monkeypatch
     ):
+        calls: List[str] = []
+
         async def broken(voice, output_wav):
+            calls.append(voice)
             raise RuntimeError("HTTP 500")
 
+        logs: List[str] = []
+        sink = logger.add(lambda message: logs.append(str(message)), level="WARNING")
         monkeypatch.setattr(ra.arabic_name, "fetch_name_clip", broken)
         info = make_info(tmp_path, "Hanaa", "hanae", "Merci beaucoup, c'est Hanaa qui parle ici.")
 
-        path = await ra.synthesize_clip_resilient(info)
+        try:
+            path = await ra.synthesize_clip_resilient(info)
+        finally:
+            logger.remove(sink)
 
         assert path.exists()
+        assert len(calls) == ra.ARABIC_NAME_ATTEMPTS
         assert ("librairie", "Merci beaucoup, c'est Hanaa qui parle ici.") in chain.events
         assert not (tmp_path / "arabic_name" / "0000").exists()
+        text = " ".join(logs)
+        assert "clip 0000 (Hanaa)" in text and "étape 2, prénom arabe" in text
+        assert "lecture française" in text
+
+    @pytest.mark.asyncio
+    async def test_a_passing_failure_of_the_arabic_endpoint_is_retried_and_succeeds(
+        self, tmp_path, chain, monkeypatch
+    ):
+        calls: List[str] = []
+
+        async def flaky(voice, output_wav):
+            calls.append(voice)
+            if len(calls) == 1:
+                raise RuntimeError("HTTP 500")
+            output_wav.write_bytes(b"x" * 2000)
+
+        monkeypatch.setattr(ra.arabic_name, "fetch_name_clip", flaky)
+        info = make_info(tmp_path, "Younes", "younes", "Hanaa, qu'en penses-tu de ce chiffre ?")
+
+        await ra.synthesize_clip_resilient(info)
+
+        assert len(calls) == 2
+        assert ("assemble", [".wav", ".mp3"]) in chain.events
+        assert [e[0] for e in chain.events].count("librairie") == 0
+
+    @pytest.mark.asyncio
+    async def test_a_french_fragment_refused_by_the_engine_is_tried_in_another_writing(
+        self, tmp_path, chain, monkeypatch
+    ):
+        async def picky(info, text, output_file, language):
+            chain.events.append(("speak", text, language))
+            if text.startswith(","):
+                raise RuntimeError("HTTP 500")
+            output_file.write_bytes(b"x" * 2000)
+
+        monkeypatch.setattr(ra, "_speak", picky)
+        info = make_info(tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?")
+
+        await ra.synthesize_clip_resilient(info)
+
+        assert ("speak", ", qu'en penses-tu de ce chiffre ?", None) in chain.events
+        assert ("speak", "qu'en penses-tu de ce chiffre ?", None) in chain.events
+        assert ("assemble", [".wav", ".mp3"]) in chain.events
+        assert [e[0] for e in chain.events].count("librairie") == 0
 
     @pytest.mark.asyncio
     async def test_a_reply_without_the_name_is_untouched(self, tmp_path, chain):
