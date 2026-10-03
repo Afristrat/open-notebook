@@ -214,7 +214,9 @@ def refusal_feedback(error: str) -> str:
     return (
         "La transcription précédente a été REFUSÉE par le contrôle de contenu. Écris une nouvelle "
         f"transcription qui corrige exactement ces points : {reasons}. Quand une part de parole est en "
-        "défaut, donne plus de répliques à l'intervenant concerné, en les retirant à celui qui en a trop."
+        "défaut, REDISTRIBUE les répliques sans allonger l'épisode (même longueur totale, dans la fourchette "
+        "de mots demandée) : transforme des répliques de l'intervenant qui en a trop en réactions de ceux "
+        "qui n'en ont pas assez."
     )
 
 
