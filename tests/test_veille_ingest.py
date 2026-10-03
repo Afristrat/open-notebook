@@ -113,6 +113,39 @@ class TestPostText:
         assert not ingest.is_short_form({"url": "https://arxiv.org/abs/1"})
 
 
+class TestProvidedText:
+    """`texte_complet` de Saqr (livré le 03/10, demande 4) : lu quand la page ne l'est pas."""
+
+    POST = ("Muse Spark 1.1 et 1.2 : Meta publie deux versions de son modèle, avec des gains mesurés sur "
+            "les tâches longues. " * 8)
+    FEED = "Résumé du flux : l'éditeur annonce une mise à jour de sa plateforme d'agents, sans détail chiffré."
+
+    def test_the_text_of_saqr_replaces_a_shorter_page(self):
+        source = {**X_POST, "texte_complet": self.POST}
+        text, from_saqr = ingest.prefer_provided(source, "X. It's what's happening, log in")
+        assert from_saqr and text == self.POST.strip()
+        assert "1.1" in text and "1.2" in text
+
+    def test_a_longer_page_read_by_diwan_is_kept(self):
+        source = {**ARXIV, "texte_complet": "Résumé court de Saqr."}
+        assert ingest.prefer_provided(source, ARTICLE) == (ARTICLE, False)
+
+    def test_no_text_of_saqr_changes_nothing(self):
+        assert ingest.prefer_provided(ARXIV, "page") == ("page", False)
+        assert ingest.prefer_provided({**ARXIV, "texte_complet": None}, "page") == ("page", False)
+
+    FEED_SOURCE = {**ARXIV, "titre": "Plateforme agents mise à jour"}
+
+    def test_a_short_feed_summary_is_usable_only_when_it_comes_from_saqr(self):
+        assert ingest.classify(self.FEED_SOURCE, "", self.FEED, {})[0] == ingest.ECHEC
+        assert ingest.classify(self.FEED_SOURCE, "", self.FEED, {}, provided=True)[0] == ingest.INGEREE
+
+    def test_a_signal_of_saqr_is_not_a_page_so_no_paywall_to_look_for(self):
+        text = "Abonnez-vous pour lire : l'éditeur résume ici sa mise à jour de plateforme d'agents en trois points."
+        assert ingest.classify(self.FEED_SOURCE, "", text, {})[0] == ingest.PAYWALL
+        assert ingest.classify(self.FEED_SOURCE, "", text, {}, provided=True)[0] == ingest.INGEREE
+
+
 class TestMainText:
     def test_links_images_and_consent_banners_are_removed(self):
         raw = (

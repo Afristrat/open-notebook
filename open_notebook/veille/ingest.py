@@ -115,6 +115,23 @@ def post_text(source: Dict[str, Any], extracted: str) -> Tuple[str, bool]:
     return extracted, False
 
 
+def provided_text(source: Dict[str, Any]) -> str:
+    """Texte intégral du signal tel que Saqr l'a capturé (`texte_complet`, livré le 03/10), ou ""."""
+    raw = source.get("texte_complet")
+    return raw.strip() if isinstance(raw, str) else ""
+
+
+def prefer_provided(source: Dict[str, Any], text: str) -> Tuple[str, bool]:
+    """Le texte de Saqr remplace ce que Diwan a lu s'il est plus complet (post X tronqué, page vide).
+
+    Même niveau de confiance que le titre d'un post X, déjà admis en repli: c'est la capture de Saqr.
+    """
+    provided = provided_text(source)
+    if provided and len(provided) > len((text or "").strip()):
+        return provided, True
+    return text, False
+
+
 def source_urls(source: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     """Adresse à lire (celle de l'éditeur si Saqr l'a résolue) et PDF complet d'un article arXiv."""
     url = (source.get("article_url") or source.get("url") or "").strip()
@@ -185,20 +202,24 @@ def pick_arxiv_match(text: Optional[str], entries: List[Dict[str, str]]) -> Opti
 
 
 def classify(
-    source: Dict[str, Any], title: Optional[str], text: str, seen: Dict[int, str]
+    source: Dict[str, Any], title: Optional[str], text: str, seen: Dict[int, str], provided: bool = False
 ) -> Tuple[str, str]:
-    """Statut et détail d'une source à partir de ce que Diwan a lu (texte vide = lecture ratée)."""
+    """Statut et détail d'une source à partir de ce que Diwan a lu (texte vide = lecture ratée).
+
+    `provided`: le texte est le `texte_complet` de Saqr, pas une page lue: ni mur anti-robot ni paywall
+    à y chercher, et un résumé de flux court (289 caractères le 03/10) reste un texte exploitable.
+    """
     text = (text or "").strip()
     if not text:
         return ECHEC, "source non récupérée par Diwan"
     low = text[:3000].lower()
-    if "requiring captcha" in low or "verify you are human" in low:
+    if not provided and ("requiring captcha" in low or "verify you are human" in low):
         return ECHEC, "mur anti-robot (CAPTCHA), aucun texte d'article"
     # Un marqueur de paywall ne vaut que sur un texte court: sur un article complet,
     # « Abonnez-vous » n'est que le lien du menu.
-    if len(text) < 3000 and any(m in low for m in PAYWALL_MARKERS):
+    if not provided and len(text) < 3000 and any(m in low for m in PAYWALL_MARKERS):
         return PAYWALL, "marqueur de paywall ou d'accès refusé"
-    if len(text) < (SHORT_FORM_MIN_CHARS if is_short_form(source) else MIN_TEXT_CHARS):
+    if len(text) < (SHORT_FORM_MIN_CHARS if provided or is_short_form(source) else MIN_TEXT_CHARS):
         return ECHEC, f"texte trop court ({len(text)} caractères)"
     expected = title_tokens(source.get("titre"))
     if expected:

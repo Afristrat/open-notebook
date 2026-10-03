@@ -161,8 +161,19 @@ async def read_sources(
     seen: Dict[int, str] = {}
     for source, (title, text, article) in zip(sources, reads):
         text, from_saqr_title = ingest.post_text(source, text)  # post X: repli sur le texte relevé par Saqr
-        statut, detail = ingest.classify(source, title, text, seen)
-        if from_saqr_title and statut == ingest.INGEREE:
+        text, from_provided = ingest.prefer_provided(source, text)  # texte_complet de Saqr s'il est plus complet
+        statut, detail = ingest.classify(source, title, text, seen, provided=from_provided)
+        if statut in ingest.ALTERED and not from_provided:
+            # Page illisible, paywall ou divergente: la source n'est inexploitable que si le texte_complet
+            # de Saqr ne l'est pas non plus (demande de Saqr, 03/10).
+            fallback = ingest.provided_text(source)
+            if fallback:
+                retry_statut, retry_detail = ingest.classify(source, title, fallback, seen, provided=True)
+                if retry_statut in (ingest.INGEREE, ingest.REPRISE):
+                    text, from_provided, statut, detail = fallback, True, retry_statut, retry_detail
+        if from_provided and statut == ingest.INGEREE:
+            detail += " (texte_complet fourni par Saqr)"
+        elif from_saqr_title and statut == ingest.INGEREE:
             detail += " (texte du post relevé par Saqr, X ne se lit pas)"
         number = int(source.get("numero") or len(results) + 1)
         result = ingest.SourceResult(

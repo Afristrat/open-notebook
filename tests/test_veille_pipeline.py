@@ -237,6 +237,44 @@ def _scripted_reads(monkeypatch, readable):
     monkeypatch.setattr(pipeline, "_read_source", fake_read)
 
 
+class TestProvidedTextOfSaqr:
+    """Demande 4 de Saqr (03/10) : `texte_complet` lu quand l'adresse ne s'ouvre pas."""
+
+    SOURCES = [
+        {"numero": 1, "titre": "Muse Spark nouvelles versions publiées", "url": "https://x.com/a/status/1",
+         "plateforme": "X", "meta": "X, score 70", "article_url": None,
+         "texte_complet": "Muse Spark nouvelles versions publiées : Meta publie les versions 1.1 et 1.2 "
+                          "de son modèle avec des gains mesurés sur les tâches longues. " * 3},
+        {"numero": 2, "titre": "Plateforme agents mise à jour annoncée", "url": "https://exemple.org/2",
+         "plateforme": "RSS", "meta": "RSS, score 60", "article_url": None,
+         "texte_complet": "Plateforme agents : mise à jour annoncée par l'éditeur, sans détail chiffré "
+                          "ni calendrier précis publié."},
+        {"numero": 3, "titre": "Source sans aucun texte lisible", "url": "https://exemple.org/3",
+         "plateforme": "RSS", "meta": "RSS, score 50", "article_url": None},
+    ]
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_page_is_unusable_only_without_the_text_of_saqr(self, monkeypatch):
+        async def unreadable(source, limiter):
+            return "", "", ""
+
+        monkeypatch.setattr(pipeline, "_read_source", unreadable)
+        results = await pipeline.read_sources(self.SOURCES, "Fil conducteur.")
+        assert [r.statut for r in results] == [ingest.INGEREE, ingest.INGEREE, ingest.ECHEC]
+        assert "texte_complet fourni par Saqr" in results[0].detail
+        assert "1.1" in results[0].texte and "1.2" in results[0].texte
+        assert ingest.alteration_rate(results) == pytest.approx(1 / 3)
+
+    @pytest.mark.asyncio
+    async def test_a_paywalled_page_falls_back_on_the_text_of_saqr(self, monkeypatch):
+        async def paywalled(source, limiter):
+            return source["titre"], "Abonnez-vous pour lire la suite de cet article.", ""
+
+        monkeypatch.setattr(pipeline, "_read_source", paywalled)
+        results = await pipeline.read_sources(self.SOURCES[:2], "Fil conducteur.")
+        assert [r.statut for r in results] == [ingest.INGEREE, ingest.INGEREE]
+
+
 class TestProduce:
     @pytest.mark.asyncio
     async def test_the_content_carries_the_sources_diwan_read_and_the_episode_is_named_by_date(
