@@ -28,12 +28,19 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from esperanto import AIFactory
 from langchain_core.runnables import RunnableConfig
 from loguru import logger
 from podcast_creator.core import Dialogue
 from podcast_creator.nodes import combine_audio_node, generate_single_audio_clip
 
 from open_notebook.podcasts.tts_text import has_lexicon_term, tts_text_variants
+from open_notebook.podcasts.voice_treatments import (
+    alters_clip,
+    apply_audio_filter,
+    respell,
+    treatment_for,
+)
 
 # En dessous, le fichier est un déchet d'échec (en-tête sans audio), pas un clip.
 MIN_CLIP_BYTES = 1000
@@ -62,8 +69,37 @@ def _is_valid_clip(path: Path) -> bool:
 
 
 def _lexicon_marker(output_dir: Any, index: int) -> Path:
-    """Marqueur « clip produit avec le lexique de prononciation », hors du dossier des clips."""
+    """Marqueur « clip produit avec le lexique de prononciation et les réglages de sa voix »,
+    hors du dossier des clips."""
     return Path(output_dir) / "lexicon_checked" / f"{index:04d}"
+
+
+async def _generate_clip_with_language(info: Dict[str, Any], language: str) -> Path:
+    """Même appel que `generate_single_audio_clip` de la librairie, plus `language` dans la requête.
+
+    La librairie ne transmet jamais `language` (son `tts_config` va au constructeur, pas à
+    `agenerate_speech`) ; or la version validée de Rim et de Younes l'exige (voir `voice_treatments`).
+    """
+    dialogue = info["dialogue"]
+    clip_path = _clip_path(info["output_dir"], info["index"])
+    clip_path.parent.mkdir(exist_ok=True, parents=True)
+    tts_config = dict(info.get("tts_config") or {})
+    api_key = tts_config.pop("api_key", None)
+    base_url = tts_config.pop("base_url", None)
+    model = AIFactory.create_text_to_speech(
+        info["tts_provider"],
+        info["tts_model"],
+        api_key=api_key,
+        base_url=base_url,
+        **tts_config,
+    )
+    await model.agenerate_speech(
+        text=dialogue.dialogue,
+        voice=info["voices"][dialogue.speaker],
+        output_file=clip_path,
+        language=language,
+    )
+    return clip_path
 
 
 # Seuil mesuré le 2026-10-01 : le moteur de voix produit par intermittence un clip
@@ -129,7 +165,8 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
     clip_path = _clip_path(dialogue_info["output_dir"], index)
 
     marker = _lexicon_marker(dialogue_info["output_dir"], index)
-    needs_lexicon = has_lexicon_term(dialogue.dialogue)
+    treatment = treatment_for((dialogue_info.get("voices") or {}).get(dialogue.speaker))
+    needs_lexicon = has_lexicon_term(dialogue.dialogue) or alters_clip(treatment)
 
     if _is_valid_clip(clip_path):
         silence = await _longest_silence(clip_path)
@@ -149,7 +186,7 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
             )
             clip_path.unlink(missing_ok=True)
 
-    variants = tts_text_variants(dialogue.dialogue)
+    variants = [respell(text, treatment) for text in tts_text_variants(dialogue.dialogue)]
     max_attempts = int(_env_number("DIWAN_TTS_MAX_ATTEMPTS", 8))
     wait_base = _env_number("DIWAN_TTS_WAIT_BASE", 4)
     wait_cap = _env_number("DIWAN_TTS_WAIT_MAX", 90)
@@ -162,12 +199,16 @@ async def synthesize_clip_resilient(dialogue_info: Dict[str, Any]) -> Path:
                 **dialogue_info,
                 "dialogue": Dialogue(speaker=dialogue.speaker, dialogue=text),
             }
-            path = await generate_single_audio_clip(info)
+            if treatment.language:
+                path = await _generate_clip_with_language(info, treatment.language)
+            else:
+                path = await generate_single_audio_clip(info)
             if not _is_valid_clip(path):
                 raise RuntimeError("clip vide ou tronqué")
             silence = await _longest_silence(path)
             if silence:
                 raise RuntimeError(f"silence interne de {silence:.0f}s dans le clip")
+            await apply_audio_filter(path, treatment)
             if attempt:
                 logger.info(
                     f"[audio] clip {index:04d} produit à l'essai {attempt + 1} "

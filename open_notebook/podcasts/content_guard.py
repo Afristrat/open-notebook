@@ -45,6 +45,14 @@ INTRO_LINES = 10
 # 2026-10-01 : 6 répliques sur 56, puis 16 sur 80 soit 20 %). 0 désactive.
 MIN_SPEAKER_SHARE = 0.22
 
+# Panel de 4 voix ou plus (décision d'Amine, 2026-10-03) : la modératrice (première voix du
+# profil) ouvre, relance et clôt mais n'a pas le rôle d'éclairage des invités ; chaque invité
+# gagne 5 points de part minimale (0,22 -> 0,27), prélevés sur elle, dont le plancher descend
+# à HOST_PANEL_MIN_SHARE (ouverture, clôture et relances : environ 10 répliques sur 70).
+PANEL_MIN_SPEAKERS = 4
+PANEL_GUEST_BONUS = 0.05
+HOST_PANEL_MIN_SHARE = 0.10
+
 # Clôture : la dernière réplique est celle de l'animateur (le premier à parler), qui
 # donne l'action du jour et salue. Constaté le 2026-10-01 : l'épisode se terminait sur
 # une opinion de Tariq, sans salut. False désactive.
@@ -278,6 +286,9 @@ def check_transcript(
     intro_lines: int = 0,
     min_share: float = 0.0,
     closing_speaker: Optional[str] = None,
+    panel_host: Optional[str] = None,
+    guest_bonus: float = 0.0,
+    host_min_share: float = 0.0,
 ) -> GuardReport:
     """Confronte chaque réplique au corpus des sources, la longueur à la fourchette,
     l'ouverture à la présentation des intervenants, leur part de parole et la clôture."""
@@ -296,13 +307,19 @@ def check_transcript(
         for name in speaker_names:
             count = folded_speakers.count(_fold(name))
             share = count / len(folded_speakers)
-            if share < min_share:
+            if panel_host is None:
+                minimum = min_share
+            elif _fold(name) == _fold(panel_host):
+                minimum = host_min_share
+            else:
+                minimum = round(min_share + guest_bonus, 4)
+            if share < minimum:
                 report.violations.append(
                     GuardIssue(
                         0,
                         "part_intervenant",
                         f"{name} ne dit que {count} réplique(s) sur "
-                        f"{len(folded_speakers)} ({share:.0%}), minimum {min_share:.0%}",
+                        f"{len(folded_speakers)} ({share:.0%}), minimum {minimum:.0%}",
                     )
                 )
     if intro_lines and speakers is not None:
@@ -414,6 +431,9 @@ async def content_guard_node(
         intro_lines=INTRO_LINES,
         min_share=MIN_SPEAKER_SHARE,
         closing_speaker=speakers_in_order[0] if HOST_CLOSES and speakers_in_order else None,
+        panel_host=names[0] if len(names) >= PANEL_MIN_SPEAKERS else None,
+        guest_bonus=PANEL_GUEST_BONUS,
+        host_min_share=HOST_PANEL_MIN_SHARE,
     )
 
     output_dir = state.get("output_dir")
