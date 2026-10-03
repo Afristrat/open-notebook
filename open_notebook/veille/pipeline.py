@@ -11,6 +11,7 @@ Règles de fiabilité (recette du 30/09 au 02/10/2026):
 import asyncio
 import os
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import httpx
@@ -211,6 +212,16 @@ async def _episode_of(job: str) -> Optional[Dict[str, Any]]:
     return rows[0] if rows else None
 
 
+def _is_resumable(episode: Optional[Dict[str, Any]]) -> bool:
+    """Un épisode ne se reprend au clip près que si sa transcription existe sur disque.
+
+    Le 03/10, un épisode interrompu avant l'écriture de `transcript.json` a fait échouer les 5 essais en une
+    minute (« Épisode non reprenable ») : sans transcription, on repart d'un épisode neuf.
+    """
+    output_dir = (episode or {}).get("output_dir")
+    return bool(output_dir) and (Path(str(output_dir)) / "transcript.json").is_file()
+
+
 async def _finalize(run: Dict[str, Any], job: str) -> None:
     """Lit le fichier produit; ne marque « pret » qu'après vérification du format et de la durée."""
     episode = await _episode_of(job)
@@ -252,7 +263,7 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
             resume_episode_id = None  # le texte était mauvais: on repart d'une nouvelle transcription
             continue
         episode = await _episode_of(job)  # panne de voix: reprendre l'épisode au clip près
-        resume_episode_id = str(episode["id"]) if episode else None
+        resume_episode_id = str(episode["id"]) if episode and _is_resumable(episode) else None
     raise ProductionFailed(f"Échec après {limit} essais : {sanitize(last_error)}")
 
 

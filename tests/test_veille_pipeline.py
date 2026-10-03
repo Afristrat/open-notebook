@@ -124,7 +124,7 @@ class TestSaqrResponses:
             saqr_client._check(httpx.Response(503), "Le rappel")
 
 
-def _script(monkeypatch, outcomes, episode_id=None):
+def _script(monkeypatch, outcomes, episode_id=None, output_dir=None):
     calls = {"submits": [], "finalized": []}
 
     async def fake_submit(name, content, resume_episode_id):
@@ -135,7 +135,7 @@ def _script(monkeypatch, outcomes, episode_id=None):
         return outcomes[len(calls["submits"]) - 1]
 
     async def fake_episode_of(job):
-        return {"id": episode_id} if episode_id else None
+        return {"id": episode_id, "output_dir": str(output_dir) if output_dir else None} if episode_id else None
 
     async def fake_finalize(run, job):
         calls["finalized"].append(job)
@@ -159,14 +159,26 @@ class TestGenerate:
         assert store.by_ref(REF)["tentatives"] == 2
 
     @pytest.mark.asyncio
-    async def test_a_voice_outage_resumes_the_same_episode_at_the_clip(self, store, monkeypatch):
+    async def test_a_voice_outage_resumes_the_same_episode_at_the_clip(self, store, monkeypatch, tmp_path):
+        (tmp_path / "transcript.json").write_text("[]", encoding="utf-8")
         calls = _script(
             monkeypatch,
             [{"status": "failed", "error_message": "HTTP 500 du serveur de voix"}, {"status": "completed"}],
-            episode_id="episode:abc",
+            episode_id="episode:abc", output_dir=tmp_path,
         )
         await pipeline.generate(store.add(), "contenu", "n")
         assert calls["submits"] == [None, "episode:abc"]
+
+    @pytest.mark.asyncio
+    async def test_an_episode_without_transcript_is_not_resumed_but_restarted(self, store, monkeypatch, tmp_path):
+        """Le 03/10, la reprise d'un épisode sans transcript.json a fait échouer les 5 essais en une minute."""
+        calls = _script(
+            monkeypatch,
+            [{"status": "failed", "error_message": "interrompu"}, {"status": "completed"}],
+            episode_id="episode:sans-transcription", output_dir=tmp_path,
+        )
+        await pipeline.generate(store.add(), "contenu", "n")
+        assert calls["submits"] == [None, None]
 
     @pytest.mark.asyncio
     async def test_a_voice_outage_before_any_episode_exists_restarts_cleanly(self, store, monkeypatch):
