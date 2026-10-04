@@ -71,6 +71,47 @@ class TestFragmentCandidates:
         assert an.fragment_candidates(" ... ") == []
 
 
+class TestReferenceClips:
+    @pytest.mark.parametrize("voice", ["rim", "mehdi", "younes", "hanae"])
+    def test_every_voice_of_the_panel_has_a_reference_clip_of_a_plausible_length(self, voice):
+        path = an.reference_clip(voice)
+        assert path is not None
+        seconds = len(an.read_wav(path)) / an.SAMPLE_RATE
+        assert 0.25 <= seconds <= 0.65
+
+    def test_a_voice_without_reference_has_none(self):
+        assert an.reference_clip("khalid") is None
+
+    @pytest.mark.asyncio
+    async def test_the_reference_clip_is_used_without_any_call_to_the_engine(self, tmp_path, monkeypatch):
+        def never(*args, **kwargs):
+            raise AssertionError("aucun appel réseau attendu")
+
+        monkeypatch.setattr(an.httpx, "AsyncClient", never)
+        out = tmp_path / "name.wav"
+        await an.fetch_name_clip("rim", out)
+        assert out.read_bytes() == an.reference_clip("rim").read_bytes()
+
+    @pytest.mark.asyncio
+    async def test_a_voice_without_reference_falls_back_on_the_engine(self, tmp_path, monkeypatch):
+        calls = []
+
+        class Boom:
+            def __init__(self, *args, **kwargs):
+                calls.append("client")
+
+            async def __aenter__(self):
+                raise RuntimeError("HTTP 500")
+
+            async def __aexit__(self, *args):
+                return False
+
+        monkeypatch.setattr(an.httpx, "AsyncClient", Boom)
+        with pytest.raises(RuntimeError, match="HTTP 500"):
+            await an.fetch_name_clip("khalid", tmp_path / "name.wav")
+        assert calls == ["client"]
+
+
 class TestCut:
     def test_the_name_is_what_follows_the_dip_between_the_two_words(self):
         carrier = flat(0.30) + tone(0.35) + flat(0.04, 150) + tone(0.40) + flat(0.10)

@@ -15,7 +15,7 @@ import re
 import shutil
 import wave
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import httpx
 from loguru import logger
@@ -126,8 +126,25 @@ async def _ffmpeg(*args: str) -> None:
         raise RuntimeError(f"ffmpeg a échoué : {stderr.decode(errors='replace')[:200]}")
 
 
+REFERENCE_DIR = Path(__file__).parent / "assets"
+
+
+def reference_clip(voice: str) -> Optional[Path]:
+    """Clip de référence du prénom pour cette voix, choisi à l'écoute par Amine (prise 2 de la session du
+    04/10/2026) : toujours la même prononciation, sans appel au moteur. None si la voix n'en a pas."""
+    path = REFERENCE_DIR / f"hanaa_{voice}.wav"
+    return path if path.is_file() else None
+
+
 async def fetch_name_clip(voice: str, output_wav: Path) -> None:
-    """Le prénom seul, dans la voix demandée, prêt à être assemblé (WAV mono 44,1 kHz)."""
+    """Le prénom seul, dans la voix demandée, prêt à être assemblé (WAV mono 44,1 kHz).
+
+    Le clip de référence de la voix prime ; sans lui, le prénom est généré par `/tts` (prononciation variable
+    d'une génération à l'autre : durée de 0,31 à 0,57 s mesurée le 04/10)."""
+    reference = reference_clip(voice)
+    if reference is not None:
+        shutil.copyfile(reference, output_wav)
+        return
     async with httpx.AsyncClient(timeout=TIMEOUT_SECONDS) as client:
         response = await client.post(
             tts_url(), json={"text": CARRIER, "voice": voice, "language": "ar", "tachkil": False}
