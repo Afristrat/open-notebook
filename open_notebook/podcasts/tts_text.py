@@ -97,6 +97,12 @@ _PRONUNCIATION_LEXICON = (
     (re.compile(r"\bDIA\b"), "D I A"),
     # « Younes » : la voix disait « Younez » ; « Younès » (écoute d'Amine du 04/10/2026, échantillon 3).
     (re.compile(r"\bYounes\b"), "Younès"),
+    # « challenge » : le moteur le lit à l'anglaise ; Amine veut la lecture française (04/10/2026) :
+    # « chalanje », « chalanjé ». Graphie phonétique à confirmer à l'écoute.
+    (re.compile(r"\bchallengent\b", re.IGNORECASE), "chalanjent"),
+    (re.compile(r"\bchallenger\b", re.IGNORECASE), "chalanjé"),
+    (re.compile(r"\bchallenges\b", re.IGNORECASE), "chalanjes"),
+    (re.compile(r"\bchallenge\b", re.IGNORECASE), "chalanje"),
     # Grades américains abrégés (veille du 04/10/2026 : « Maj. Gen. Robert Kinney » lu « Maje, gêne »).
     (re.compile(r"\bMaj\.\s*Gen\."), "major général"),
     (re.compile(r"\bLt\.\s*Gen\."), "lieutenant général"),

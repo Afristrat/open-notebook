@@ -125,6 +125,13 @@ class TestLexicon:
     def test_the_dia_rule_ignores_lowercase_words(self):
         assert apply_lexicon("une dia") == "une dia"
 
+    def test_challenge_is_read_the_french_way(self):
+        assert apply_lexicon("Il challenge ce point, ce challenge, les challenges, ils challengent.") == (
+            "Il chalanje ce point, ce chalanje, les chalanjes, ils chalanjent."
+        )
+        assert apply_lexicon("Il faut challenger ce chiffre.") == "Il faut chalanjé ce chiffre."
+        assert apply_lexicon("Un Challenge de plus") == "Un chalanje de plus"
+
     def test_younes_is_written_with_its_accent_for_the_engine(self):
         assert apply_lexicon("Merci Younes, et à Younes aussi.") == "Merci Younès, et à Younès aussi."
         assert apply_lexicon("Younesse") == "Younesse"
