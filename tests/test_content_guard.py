@@ -388,7 +388,7 @@ class TestRegressionOfTheDay03:
         assert cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)).violations == []
 
     def test_a_far_too_long_transcript_is_still_refused(self):
-        lines = ["mot " * 100] * 26
+        lines = ["mot " * 100] * 34  # 3 400 mots : au-dessus du plafond relevé à 3 200 (04/10/2026)
         report = cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS))
         assert [v.kind for v in report.violations] == ["duree_hors_cible"]
 
@@ -402,3 +402,26 @@ class TestRegressionOfTheDay03:
     def test_an_unrelated_number_is_still_refused(self):
         report = cg.check_transcript(["Il coûte six cent quatre-vingt-dix dollars."], self.CORPUS)
         assert [v.kind for v in report.violations] == ["nombre_absent"]
+
+
+class TestMinimumWordsFollowTheMatter:
+    """Saqr a relevé la durée cible à 13-20 minutes (04/10/2026) ; Amine refuse un éclairage de 8 minutes."""
+
+    def test_the_target_is_thirteen_to_twenty_minutes(self):
+        assert (cg.MIN_WORDS, cg.MAX_WORDS) == (2100, 3200)
+        assert round(cg.MIN_WORDS / cg.WORDS_PER_MINUTE) == 13
+        assert round(cg.MAX_WORDS / cg.WORDS_PER_MINUTE) == 20
+
+    def test_a_normal_day_requires_the_full_minimum(self):
+        assert cg.min_words_for("x" * 13_456) == cg.MIN_WORDS  # corpus du 04/10 : trois sources, 13 456 caractères
+        assert cg.min_words_for("x" * 170_000) == cg.MIN_WORDS
+
+    def test_only_a_tiny_corpus_lowers_the_minimum_and_never_below_the_floor(self):
+        assert cg.min_words_for("x" * 6_982) == int(6_982 * cg.THIN_DAY_WORDS_PER_CHAR)
+        assert cg.min_words_for("x" * 100) == cg.MIN_WORDS_FLOOR
+        assert cg.min_words_for("") == cg.MIN_WORDS_FLOOR
+
+    def test_the_refusal_names_the_duration_in_minutes_of_the_actual_range(self):
+        report = cg.check_transcript(["mot " * 50], "mot", word_range=(2100, 3200))
+        assert report.violations[0].kind == "duree_hors_cible"
+        assert "13 à 20 minutes" in report.violations[0].detail

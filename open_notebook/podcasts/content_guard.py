@@ -32,8 +32,21 @@ from loguru import logger
 # 2026-10-01 sur deux épisodes terminés), soit environ 1 100 mots (7 à 8 minutes).
 # Plafond relevé de 2 000 à 2 400 mots (environ 14 minutes) le 2026-10-03 : en monologue, le modèle écrit
 # 2 027 à 2 193 mots et le contrôle refusait 5 tentatives sur 5 pour quelques dizaines de mots.
-MIN_WORDS = 1100
-MAX_WORDS = 2400
+MIN_WORDS = 2100
+MAX_WORDS = 3200
+# Durée cible relevée par Saqr le 04/10/2026 : 13 à 20 minutes (débat compris), soit environ 2 100 à 3 200 mots
+# (163 mots par minute mesurés sur les épisodes du panel). Amine refuse un éclairage de 8 minutes (04/10) : le
+# minimum de 2 100 mots vaut pour toute journée dont les sources ont une matière normale (le débat approfondit
+# par des angles nouveaux, jamais en répétant). Il ne baisse que pour un corpus minuscule (0,2 mot par caractère
+# de texte source, plancher 700 mots) afin qu'une journée ne reste jamais sans podcast.
+THIN_DAY_WORDS_PER_CHAR = 0.2
+MIN_WORDS_FLOOR = 700
+WORDS_PER_MINUTE = 163
+
+
+def min_words_for(corpus: str) -> int:
+    """Minimum de mots exigé pour ces sources : MIN_WORDS pour un jour riche, moins pour un jour mince."""
+    return min(MIN_WORDS, max(MIN_WORDS_FLOOR, int(len(corpus) * THIN_DAY_WORDS_PER_CHAR)))
 
 # Ouverture : chaque intervenant doit avoir été nommé ET avoir pris la parole dans
 # ces premières répliques (retour d'écoute d'Amine, 2026-10-01 : l'épisode entrait
@@ -344,7 +357,8 @@ def check_transcript(
                 GuardIssue(
                     0,
                     "duree_hors_cible",
-                    f"{total} mots (cible {low} à {high}, soit environ 8 à 14 minutes de voix)",
+                    f"{total} mots (cible {low} à {high}, soit environ "
+                    f"{round(low / WORDS_PER_MINUTE)} à {round(high / WORDS_PER_MINUTE)} minutes de voix)",
                 )
             )
     corpus_folded = _fold(corpus)
@@ -426,7 +440,7 @@ async def content_guard_node(
         corpus,
         extra_allowed=allowed_dates(state.get("content")),
         speaker_names=names,
-        word_range=(MIN_WORDS, MAX_WORDS),
+        word_range=(min_words_for(corpus), MAX_WORDS),
         speakers=speakers_in_order,
         intro_lines=INTRO_LINES,
         min_share=MIN_SPEAKER_SHARE,
