@@ -125,6 +125,10 @@ class TestLexicon:
     def test_the_dia_rule_ignores_lowercase_words(self):
         assert apply_lexicon("une dia") == "une dia"
 
+    def test_younes_is_written_with_its_accent_for_the_engine(self):
+        assert apply_lexicon("Merci Younes, et à Younes aussi.") == "Merci Younès, et à Younès aussi."
+        assert apply_lexicon("Younesse") == "Younesse"
+
     def test_abbreviated_us_ranks_are_spoken_in_full(self):
         assert apply_lexicon("Maj. Gen. Robert Kinney évoque") == "major général Robert Kinney évoque"
         assert apply_lexicon("Lt. Gen. Smith et Brig. Gen. Jones") == (
