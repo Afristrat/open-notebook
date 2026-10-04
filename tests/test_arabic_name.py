@@ -125,6 +125,17 @@ class TestLexicon:
     def test_the_dia_rule_ignores_lowercase_words(self):
         assert apply_lexicon("une dia") == "une dia"
 
+    def test_abbreviated_us_ranks_are_spoken_in_full(self):
+        assert apply_lexicon("Maj. Gen. Robert Kinney évoque") == "major général Robert Kinney évoque"
+        assert apply_lexicon("Lt. Gen. Smith et Brig. Gen. Jones") == (
+            "lieutenant général Smith et général de brigade Jones"
+        )
+
+    def test_a_bare_gen_is_expanded_only_before_a_name(self):
+        assert apply_lexicon("Gen. Dupont") == "général Dupont"
+        assert apply_lexicon("la Gen. z") == "la Gen. z"
+        assert apply_lexicon("génération Gen Z") == "génération Gen Z"
+
 
 def make_info(tmp_path: Path, speaker: str, voice: str, text: str) -> Dict[str, Any]:
     return {

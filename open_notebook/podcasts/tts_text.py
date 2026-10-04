@@ -95,6 +95,11 @@ _PRONUNCIATION_LEXICON = (
     # (« plateforme DIA d'entreprise » pour « plateforme d'IA d'entreprise ») ; les lettres épelées
     # « D I A » ont été écoutées et choisies par Amine (essai 2). Majuscules seulement, mot entier.
     (re.compile(r"\bDIA\b"), "D I A"),
+    # Grades américains abrégés (veille du 04/10/2026 : « Maj. Gen. Robert Kinney » lu « Maje, gêne »).
+    (re.compile(r"\bMaj\.\s*Gen\."), "major général"),
+    (re.compile(r"\bLt\.\s*Gen\."), "lieutenant général"),
+    (re.compile(r"\bBrig\.\s*Gen\."), "général de brigade"),
+    (re.compile(r"\bGen\.(?=\s+[A-Z])"), "général"),
 )
 
 
