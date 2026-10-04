@@ -116,6 +116,15 @@ class TestLexicon:
     def test_only_the_whole_word(self):
         assert apply_lexicon("Mehdia") == "Mehdia"
 
+    def test_the_dia_agency_is_spelled_letter_by_letter_and_never_confused_with_d_ia(self):
+        text = "Le sprint de la DIA pour bâtir sa plateforme d'IA d'entreprise, via ChatDIA."
+        assert apply_lexicon(text) == (
+            "Le sprint de la D I A pour bâtir sa plateforme d'IA d'entreprise, via ChatDIA."
+        )
+
+    def test_the_dia_rule_ignores_lowercase_words(self):
+        assert apply_lexicon("une dia") == "une dia"
+
 
 def make_info(tmp_path: Path, speaker: str, voice: str, text: str) -> Dict[str, Any]:
     return {

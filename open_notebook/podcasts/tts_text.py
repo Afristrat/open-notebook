@@ -91,6 +91,10 @@ def pad_short(text: str) -> str:
 _PRONUNCIATION_LEXICON = (
     (re.compile(r"\barxiv\b", re.IGNORECASE), "arksive"),
     (re.compile(r"\bmehdi\b", re.IGNORECASE), "Médi"),
+    # « DIA » (Defense Intelligence Agency, veille du 04/10/2026) : la voix le lisait comme « d'IA »
+    # (« plateforme DIA d'entreprise » pour « plateforme d'IA d'entreprise ») ; les lettres épelées
+    # « D I A » ont été écoutées et choisies par Amine (essai 2). Majuscules seulement, mot entier.
+    (re.compile(r"\bDIA\b"), "D I A"),
 )
 
 
