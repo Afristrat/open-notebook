@@ -35,6 +35,10 @@ function makeEpisode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {
     },
     briefing: 'briefing',
     job_status: 'completed',
+    published: false,
+    published_at: null,
+    description: null,
+    image_url: null,
     ...overrides,
   }
 }
