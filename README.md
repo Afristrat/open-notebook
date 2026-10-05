@@ -214,7 +214,7 @@ Done! You're ready to create your first notebook.
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/svg?repos=lfnovo/open-notebook&type=date&legend=top-left)](https://www.star-history.com/#lfnovo/open-notebook&type=date&legend=top-left)
+[![Star History Chart](https://star-history.dera.page/svg?repos=lfnovo/open-notebook&type=date&legend=top-left)](https://star-history.dera.page/#lfnovo/open-notebook&type=date&legend=top-left)
 
 
 ## Provider Support Matrix
@@ -241,8 +241,10 @@ Thanks to the [Esperanto](https://github.com/lfnovo/esperanto) library, we suppo
 | xAI          | ✅          | ❌               | ❌             | ✅             |
 | OpenRouter   | ✅          | ✅               | ✅             | ✅             |
 | DashScope (Qwen) | ✅          | ❌               | ❌             | ❌             |
-| MiniMax      | ✅          | ❌               | ❌             | ❌             |
+| MiniMax      | ✅          | ❌               | ❌             | ✅             |
 | Novita       | ✅          | ❌               | ❌             | ❌             |
+| SiliconFlow  | ✅          | ❌               | ❌             | ❌             |
+| Z.ai         | ✅          | ❌               | ❌             | ❌             |
 | PayPerQ (PPQ) | ✅          | ✅               | ✅             | ✅             |
 | OpenAI Compatible* | ✅          | ✅               | ✅             | ✅             |
 
@@ -383,7 +385,6 @@ Open Notebook is MIT licensed. See the [LICENSE](LICENSE) file for details.
 [license-url]: https://github.com/lfnovo/open-notebook/blob/master/LICENSE.txt
 [linkedin-shield]: https://img.shields.io/badge/-LinkedIn-black.svg?style=for-the-badge&logo=linkedin&colorB=555
 [linkedin-url]: https://linkedin.com/in/lfnovo
-[product-screenshot]: images/screenshot.png
 [Next.js]: https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=next.js&logoColor=white
 [Next-url]: https://nextjs.org/
 [React]: https://img.shields.io/badge/React-61DAFB?style=for-the-badge&logo=react&logoColor=black

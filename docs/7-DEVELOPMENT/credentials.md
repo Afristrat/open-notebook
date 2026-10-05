@@ -23,7 +23,7 @@ Settings UI ──► /credentials API ──► Credential record (encrypted, S
 
 - One record per credential (e.g. "My OpenAI Key", "Work Anthropic") — multiple credentials per provider are supported.
 - Fields: `name`, `provider`, `modalities`, `api_key` (Pydantic `SecretStr`, masked in logs), plus provider-specific config (`base_url`, `endpoint`, `api_version`, mode-specific endpoints, `project`, `location`, `credentials_path`).
-- `api_key` is encrypted with `encrypt_value()` before save and decrypted on read (`get()` / `get_all()` are overridden). Encryption requires `OPEN_NOTEBOOK_ENCRYPTION_KEY` (see [content-processing.md](content-processing.md#encryption) for the encryption utility itself).
+- `api_key` is encrypted with `encrypt_value()` before save and decrypted on read (`get()` / `get_all()` are overridden). New values use the versioned PBKDF2 format (`pbkdf2v1:` marker); legacy values keep decrypting. Encryption requires `OPEN_NOTEBOOK_ENCRYPTION_KEY` (see [content-processing.md](content-processing.md#encryption) for the encryption utility itself).
 - `to_esperanto_config()` builds the config dict passed to Esperanto's `AIFactory.create_*`.
 - `provider_config.py` still exists only to migrate legacy `ProviderConfig` records.
 
@@ -34,13 +34,13 @@ Settings UI ──► /credentials API ──► Credential record (encrypted, S
 
 ## The API surface (`api/routers/credentials.py`)
 
-CRUD plus lifecycle operations: `POST /credentials/{id}/test` (connection check), `/discover` (list available models), `/register-models` (create Model records from discovery), and two migration endpoints (`/migrate-from-env`, `/migrate-from-provider-config`). Swagger at `/docs` documents the shapes.
+CRUD plus lifecycle operations: `POST /credentials/{id}/test` (connection check), `/discover` (list available models), `/register-models` (create Model records from discovery), and three migration endpoints (`/migrate-from-env`, `/migrate-from-provider-config`, `/migrate-encryption`). Swagger at `/docs` documents the shapes.
 
-**Supported providers (17)** are defined once in the provider registry (`open_notebook/ai/provider_registry.py` `PROVIDERS`) — env vars, modalities, test models, discovery URLs and docs links all live there, and `connection_tester.TEST_MODELS`, `credentials_service.PROVIDER_ENV_CONFIG`/`PROVIDER_MODALITIES` and `model_discovery.OPENAI_COMPAT_PROVIDERS` are derived from it. `GET /api/providers` exposes the registry to clients — the frontend fetches it at runtime (`useProviders()` in `frontend/src/lib/hooks/use-providers.ts`) and renders providers in response order (the registry declaration order). One manual copy remains, enforced by `tests/test_credential_provider_validation.py`: the `SupportedProvider` Literal in `api/models.py` (typing can't be derived at runtime):
+**Supported providers (24)** are defined once in the provider registry (`open_notebook/ai/provider_registry.py` `PROVIDERS`) — env vars, modalities, test models, discovery URLs and docs links all live there, and `connection_tester.TEST_MODELS`, `credentials_service.PROVIDER_ENV_CONFIG`/`PROVIDER_MODALITIES` and `model_discovery.OPENAI_COMPAT_PROVIDERS` are derived from it. `GET /api/providers` exposes the registry to clients — the frontend fetches it at runtime (`useProviders()` in `frontend/src/lib/hooks/use-providers.ts`) and renders providers in response order (the registry declaration order). Manual copies remain: the `SupportedProvider` Literal in `api/models.py` (typing can't be derived at runtime; enforced by `tests/test_credential_provider_validation.py`), plus a simple provider's entry in `PROVIDER_CONFIG` (`open_notebook/ai/key_provider.py`) and in the `env_var_map` of `get_provider_availability()` (`api/routers/models.py`). Add all three when adding a provider:
 
-- Simple API key: openai, anthropic, google, groq, mistral, deepseek, xai, openrouter, voyage, elevenlabs, deepgram, dashscope, minimax
-- URL-based: ollama
-- Multi-field: azure, vertex, openai_compatible
+- Simple API key: openai, anthropic, google, groq, mistral, deepseek, xai, openrouter, dashscope, minimax, novita, siliconflow, zai, ppq, cohere, voyage, elevenlabs, deepgram (siliconflow and zai also accept an optional `*_BASE_URL` endpoint override)
+- URL-based: ollama, omlx
+- Multi-field: azure, vertex, openai_compatible, anthropic_compatible
 
 **Security properties**:
 
@@ -63,3 +63,4 @@ Both migration endpoints are idempotent summaries (`migrated` / `skipped` / `err
 
 - **From env vars**: creates Credential records for providers whose env vars are set.
 - **From legacy ProviderConfig**: converts old singleton records into individual Credentials.
+- **Encryption-scheme (`/migrate-encryption`)**: rewrites stored `api_key` values (Credential rows plus nested `provider_configs` entries) into the versioned PBKDF2 format. Reads raw rows, writes back only on successful decrypt, runs as a single-admin operation, and is safe to re-run.

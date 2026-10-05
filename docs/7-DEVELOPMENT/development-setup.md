@@ -66,7 +66,7 @@ LOG_LEVEL=DEBUG
 
 After starting the API and frontend, configure your AI provider via the Settings UI:
 
-1. Open **http://localhost:3000** → **Settings** → **API Keys**
+1. Open **http://localhost:3000** → **Manage** → **Models**
 2. Click **Add Credential** → Select your provider
 3. Enter your API key (get from provider dashboard)
 4. Click **Save**, then **Test Connection**
@@ -263,7 +263,7 @@ would. The config at `.pre-commit-config.yaml` wires up:
 | Tool | What it checks | CI equivalent |
 |------|----------------|---------------|
 | **ruff** (lint) | Python lint rules (`E`, `F`, `I`) | `ruff check .` |
-| **ruff** (format) | Python formatting (line-length 88) | Not yet gated |
+| **ruff** (format) | Python formatting (line-length 88) | `ruff format --check .` |
 | **mypy** | Python type correctness | `python -m mypy .` |
 | **pre-commit-hooks** | Large files, merge conflicts, YAML/TOML syntax, trailing whitespace, EOF newlines | — |
 
@@ -436,7 +436,7 @@ ollama pull mistral
 ```
 
 Then configure via the Settings UI:
-1. Go to **Settings** → **API Keys** → **Add Credential** → **Ollama**
+1. Go to **Manage** → **Models** → **Add Credential** → **Ollama**
 2. Enter base URL: `http://localhost:11434`
 3. Click **Save**, then **Test Connection**
 4. Click **Discover Models** → **Register Models**

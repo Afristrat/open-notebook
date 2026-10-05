@@ -42,6 +42,8 @@ export function useSourceChat(sourceId: string) {
     if (currentSession?.messages) {
       setMessages(currentSession.messages)
     }
+    // Also clears the badge when the session goes away (deleted / switched).
+    setContextIndicators(currentSession?.context_indicators ?? null)
   }, [currentSession])
 
   // Auto-select most recent session when sessions are loaded
@@ -144,18 +146,25 @@ export function useSourceChat(sourceId: string) {
       const reader = response.getReader()
       const decoder = new TextDecoder()
       let aiMessage: SourceChatMessage | null = null
+      let buffer = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const text = decoder.decode(value)
-        const lines = text.split('\n')
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+
+        // Keep the last incomplete line in buffer
+        buffer = lines.pop() || ''
 
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             try {
-              const data = JSON.parse(line.slice(6))
+              const jsonStr = line.slice(6).trim()
+              if (!jsonStr) continue
+
+              const data = JSON.parse(jsonStr)
               
               if (data.type === 'ai_message') {
                 // Create AI message on first content chunk to avoid empty bubble

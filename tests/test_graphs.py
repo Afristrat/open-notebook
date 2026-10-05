@@ -148,6 +148,35 @@ class TestTransformationGraph:
         with pytest.raises(AssertionError, match="No content to transform"):
             await run_transformation(state, config)
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("full_text", ["", "   \n\t ", None])
+    async def test_run_transformation_rejects_source_without_text(self, full_text):
+        """A source with no extracted text must not reach the model, and no
+        insight is saved (#1394)."""
+        from open_notebook.domain.transformation import Transformation
+        from open_notebook.exceptions import InvalidInputError
+
+        mock_source = MagicMock(spec=Source)
+        mock_source.full_text = full_text
+        mock_source.add_insight = AsyncMock()
+
+        state = {
+            "input_text": None,
+            "transformation": MagicMock(spec=Transformation),
+            "source": mock_source,
+        }
+        config: RunnableConfig = {"configurable": {"model_id": None}}
+
+        with patch(
+            "open_notebook.graphs.transformation.provision_langchain_model",
+            new_callable=AsyncMock,
+        ) as mock_provision:
+            with pytest.raises(InvalidInputError, match="no text content"):
+                await run_transformation(state, config)
+
+        mock_provision.assert_not_called()
+        mock_source.add_insight.assert_not_called()
+
     def test_transformation_graph_compilation(self):
         """Test that transformation graph compiles correctly."""
         assert transformation_graph is not None
@@ -403,6 +432,7 @@ class TestContentProcessDeleteSource:
         mock_model_manager.return_value = mm_instance
         mock_settings.get_instance = AsyncMock(
             return_value=MagicMock(
+                youtube_preferred_languages=None,
                 default_content_processing_engine_url="crawl4ai",
                 default_content_processing_engine_doc="docling",
                 docling_ocr=False,
@@ -432,6 +462,50 @@ class TestContentProcessDeleteSource:
     @patch("open_notebook.graphs.source.ContentSettings")
     @patch("open_notebook.graphs.source.extract_content")
     @patch("open_notebook.graphs.source.ModelManager")
+    async def test_persisted_youtube_languages_wired_into_config(
+        self, mock_model_manager, mock_extract, mock_settings
+    ):
+        """ContentSettings.youtube_preferred_languages overrides the built-in
+        default list, so users can add transcript languages without a code
+        change (regression: the setting was dropped in the content-core 2.x
+        migration and silently ignored)."""
+        from content_core.common import ExtractionOutput
+
+        from open_notebook.graphs.source import SourceState, content_process
+
+        mm_instance = MagicMock()
+        mm_instance.get_defaults = AsyncMock(
+            return_value=MagicMock(default_speech_to_text_model=None)
+        )
+        mock_model_manager.return_value = mm_instance
+        mock_settings.get_instance = AsyncMock(
+            return_value=MagicMock(
+                youtube_preferred_languages=["ko", "en"],
+                default_content_processing_engine_url=None,
+                default_content_processing_engine_doc=None,
+                docling_ocr=None,
+                docling_formulas=None,
+                docling_vision=None,
+            )
+        )
+        mock_extract.return_value = ExtractionOutput(title="T", content="body")
+
+        state = {
+            "source_id": "source:123",
+            "content_state": {"url": "https://youtu.be/abc"},
+            "embed": False,
+            "apply_transformations": [],
+        }
+
+        await content_process(cast(SourceState, state))
+
+        config = mock_extract.await_args.kwargs["config"]
+        assert config.youtube_languages == ["ko", "en"]
+
+    @pytest.mark.asyncio
+    @patch("open_notebook.graphs.source.ContentSettings")
+    @patch("open_notebook.graphs.source.extract_content")
+    @patch("open_notebook.graphs.source.ModelManager")
     async def test_unavailable_engine_falls_back_to_auto(
         self, mock_model_manager, mock_extract, mock_settings
     ):
@@ -456,6 +530,7 @@ class TestContentProcessDeleteSource:
         mock_model_manager.return_value = mm_instance
         mock_settings.get_instance = AsyncMock(
             return_value=MagicMock(
+                youtube_preferred_languages=None,
                 default_content_processing_engine_url="crawl4ai",
                 default_content_processing_engine_doc="docling",
                 docling_ocr=True,
@@ -504,6 +579,7 @@ class TestContentProcessDeleteSource:
         mock_model_manager.return_value = mm_instance
         mock_settings.get_instance = AsyncMock(
             return_value=MagicMock(
+                youtube_preferred_languages=None,
                 default_content_processing_engine_url="firecrawl",
                 default_content_processing_engine_doc="simple",
                 docling_ocr=True,
@@ -538,7 +614,9 @@ class TestTransformationModelIdForwarding:
     """
 
     @pytest.mark.asyncio
-    @patch("open_notebook.graphs.source.transform_graph.ainvoke", new_callable=AsyncMock)
+    @patch(
+        "open_notebook.graphs.source.transform_graph.ainvoke", new_callable=AsyncMock
+    )
     async def test_source_graph_forwards_model_id(self, mock_ainvoke):
         """open_notebook.graphs.source.transform_content forwards model_id."""
         from open_notebook.domain.transformation import Transformation
@@ -564,7 +642,9 @@ class TestTransformationModelIdForwarding:
         assert config["configurable"]["model_id"] == "model:custom"
 
     @pytest.mark.asyncio
-    @patch("open_notebook.graphs.source.transform_graph.ainvoke", new_callable=AsyncMock)
+    @patch(
+        "open_notebook.graphs.source.transform_graph.ainvoke", new_callable=AsyncMock
+    )
     async def test_source_graph_forwards_none_model_id(self, mock_ainvoke):
         """When model_id is unset (None), None is forwarded (falls back to default)."""
         from open_notebook.domain.transformation import Transformation
