@@ -219,6 +219,17 @@ class TestGenerate:
             await pipeline.generate(store.add(), "contenu", "n")
         assert len(calls["submits"]) == 2 and calls["finalized"] == []
 
+    def test_the_default_is_twelve_attempts_and_a_bad_value_falls_back_to_it(self, monkeypatch):
+        assert pipeline.max_attempts() == 12  # 2 acceptées sur 15 les 04 et 05/10 : 5 tentatives ne suffisaient pas
+        monkeypatch.setenv("SAQR_VEILLE_MAX_ATTEMPTS", "beaucoup")
+        assert pipeline.max_attempts() == 12
+
+    @pytest.mark.asyncio
+    async def test_a_late_acceptance_is_still_taken(self, store, monkeypatch):
+        calls = _script(monkeypatch, [{"status": "failed", "error_message": GUARD_REFUSAL}] * 11 + [{"status": "completed"}])
+        await pipeline.generate(store.add(), "contenu", "n")
+        assert len(calls["submits"]) == 12 and len(calls["finalized"]) == 1
+
     @pytest.mark.asyncio
     async def test_no_new_attempt_after_the_deadline(self, store, monkeypatch):
         calls = _script(monkeypatch, [{"status": "completed"}])

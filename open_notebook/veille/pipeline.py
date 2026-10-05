@@ -54,11 +54,17 @@ class ProductionFailed(Exception):
     """Échec définitif, avec un message destiné à Saqr (sans chemin ni secret)."""
 
 
+# Mesuré les 04 et 05/10 sur 4 productions du panel de 13 à 20 minutes : 2 tentatives acceptées sur 15 (environ
+# 13 %), donc 5 tentatives échouaient une fois sur deux. Une tentative refusée coûte environ une minute : 12
+# tentatives tiennent dans les 70 minutes avec la voix (10 à 14 minutes).
+DEFAULT_MAX_ATTEMPTS = 12
+
+
 def max_attempts() -> int:
     try:
-        return max(1, int(os.getenv("SAQR_VEILLE_MAX_ATTEMPTS", "5")))
+        return max(1, int(os.getenv("SAQR_VEILLE_MAX_ATTEMPTS", str(DEFAULT_MAX_ATTEMPTS))))
     except ValueError:
-        return 5
+        return DEFAULT_MAX_ATTEMPTS
 
 
 def sanitize(message: Optional[str]) -> str:
