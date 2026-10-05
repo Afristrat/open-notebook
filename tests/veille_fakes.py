@@ -56,6 +56,9 @@ class FakeStore:
     async def list_active(self) -> List[Dict[str, Any]]:
         return [dict(r) for r in self.rows.values() if r["statut"] in runs.ACTIVE]
 
+    async def list_recent_failed(self) -> List[Dict[str, Any]]:
+        return [dict(r) for r in self.rows.values() if r["statut"] == "echec" and not r.get("episode")]
+
     async def list_pending_callbacks(self) -> List[Dict[str, Any]]:
         return [
             dict(r) for r in self.rows.values()
@@ -65,7 +68,7 @@ class FakeStore:
     def install(self, monkeypatch) -> "FakeStore":
         for name in (
             "get_run", "create_run", "relaunch_run", "update_run", "list_active",
-            "list_pending_callbacks",
+            "list_pending_callbacks", "list_recent_failed",
         ):
             monkeypatch.setattr(runs, name, getattr(self, name))
         return self

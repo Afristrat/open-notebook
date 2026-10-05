@@ -102,6 +102,14 @@ async def list_active() -> List[Dict[str, Any]]:
     return await repo_query("SELECT * FROM veille_run WHERE statut IN ['accepte', 'en_cours']")
 
 
+async def list_recent_failed() -> List[Dict[str, Any]]:
+    """Échecs des dernières 36 heures sans épisode lié: un épisode terminé après coup peut encore les rattraper."""
+    return await repo_query(
+        "SELECT * FROM veille_run WHERE statut = 'echec' AND episode = NONE "
+        "AND updated > time::now() - 36h"
+    )
+
+
 async def list_pending_callbacks() -> List[Dict[str, Any]]:
     return await repo_query(
         "SELECT * FROM veille_run WHERE statut IN ['pret', 'echec'] AND rappel_statut = 'a_envoyer'"

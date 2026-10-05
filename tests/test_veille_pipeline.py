@@ -22,6 +22,11 @@ GUARD_REFUSAL = "Contrôle de contenu : 1 écart(s) avec les sources, aucune voi
 @pytest.fixture
 def store(monkeypatch):
     fake = FakeStore().install(monkeypatch)
+
+    async def no_episodes(run):
+        return []
+
+    monkeypatch.setattr(pipeline, "episodes_of_run", no_episodes)  # pas de base: aucun épisode par défaut
     monkeypatch.setattr(pipeline, "CALLBACK_WAITS", (0, 0, 0))
     monkeypatch.setattr(pipeline, "POLL_SECONDS", 0)
     monkeypatch.delenv("SAQR_VEILLE_PAGE_URL_TEMPLATE", raising=False)
@@ -515,6 +520,7 @@ class TestRunVeille:
             await asyncio.sleep(5)
 
         monkeypatch.setattr(pipeline, "produce", slow)
+        monkeypatch.setattr(pipeline, "VOICE_GRACE_SECONDS", 0)  # production bloquée, sans voix lancée
         store.add(echeance=time.time() + 0.2)
         await pipeline.run_veille(REF)
         assert callbacks[0]["statut"] == "echec" and "Délai" in callbacks[0]["erreur"]
@@ -590,6 +596,109 @@ class TestReconcile:
         await reconcile.reconcile_once()
         assert store.by_ref(REF)["statut"] == "echec"
         assert "interrompue" in callbacks[0]["erreur"]
+
+
+class TestFinishedEpisodes:
+    """05/10 : l'essai 7 est devenu un épisode terminé à 16:04, alors que la production avait été déclarée
+    en échec à 15:42 (échéance de 70 minutes) : Saqr n'a jamais vu cet épisode."""
+
+    @staticmethod
+    def _episode(output_dir=None, audio="a.mp3"):
+        return {"id": "episode:x", "command": "command:7", "audio_file": audio, "output_dir": output_dir}
+
+    @staticmethod
+    def _patch(monkeypatch, episodes, status):
+        async def fake_episodes(run):
+            return episodes
+
+        async def fake_status(job):
+            return status
+
+        monkeypatch.setattr(pipeline, "episodes_of_run", fake_episodes)
+        monkeypatch.setattr(pipeline, "_job_status", fake_status)
+
+    @pytest.mark.asyncio
+    async def test_a_failed_run_whose_episode_finished_later_is_linked_and_announced(
+        self, store, callbacks, monkeypatch
+    ):
+        store.add(statut="echec", erreur="Délai de production dépassé.", rappel_statut="envoye")
+        self._patch(monkeypatch, [self._episode()], "completed")
+
+        async def finalize(run, job):
+            await store.update_run(
+                run["id"], statut="pret", episode="episode:x", audio_url="https://d/a", duree_s=1066.0, erreur=None
+            )
+
+        monkeypatch.setattr(pipeline, "_finalize", finalize)
+        await reconcile.reconcile_once()
+        row = store.by_ref(REF)
+        assert row["statut"] == "pret" and row["episode"] == "episode:x" and row["rappel_statut"] == "envoye"
+        assert [c["statut"] for c in callbacks] == ["pret"] and callbacks[0]["audio_url"] == "https://d/a"
+
+    @pytest.mark.asyncio
+    async def test_a_failed_run_without_a_finished_episode_stays_failed(self, store, callbacks, monkeypatch):
+        store.add(statut="echec", erreur="Délai de production dépassé.", rappel_statut="envoye")
+        self._patch(monkeypatch, [self._episode(audio=None)], "running")
+        await reconcile.reconcile_once()
+        assert store.by_ref(REF)["statut"] == "echec" and callbacks == []
+
+    @pytest.mark.asyncio
+    async def test_an_unreadable_audio_is_not_adopted_and_does_not_stop_the_loop(self, store, callbacks, monkeypatch):
+        store.add(statut="echec", erreur="Délai de production dépassé.", rappel_statut="envoye")
+        self._patch(monkeypatch, [self._episode()], "completed")
+
+        async def invalid(run, job):
+            raise pipeline.ProductionFailed("Fichier audio refusé : pas un MP3")
+
+        monkeypatch.setattr(pipeline, "_finalize", invalid)
+        await reconcile.reconcile_once()
+        assert store.by_ref(REF)["statut"] == "echec" and callbacks == []
+
+    @pytest.mark.asyncio
+    async def test_a_run_past_its_deadline_is_left_alone_while_its_voice_is_running(
+        self, store, callbacks, monkeypatch, tmp_path
+    ):
+        (tmp_path / "transcript.json").write_text("[]", encoding="utf-8")
+        store.add(statut="en_cours", echeance=time.time() - 5)
+        self._patch(monkeypatch, [self._episode(output_dir=str(tmp_path), audio=None)], "running")
+        await reconcile.reconcile_once()
+        assert store.by_ref(REF)["statut"] == "en_cours" and callbacks == []
+
+    @pytest.mark.asyncio
+    async def test_the_voice_grace_has_a_hard_ceiling(self, store, callbacks, monkeypatch, tmp_path):
+        (tmp_path / "transcript.json").write_text("[]", encoding="utf-8")
+        store.add(statut="en_cours", echeance=time.time() - pipeline.VOICE_GRACE_SECONDS - 5)
+        self._patch(monkeypatch, [self._episode(output_dir=str(tmp_path), audio=None)], "running")
+        await reconcile.reconcile_once()
+        assert store.by_ref(REF)["statut"] == "echec" and "Délai" in callbacks[0]["erreur"]
+
+    @pytest.mark.asyncio
+    async def test_waiting_for_a_job_goes_on_past_the_deadline_while_its_voice_runs(
+        self, store, monkeypatch, tmp_path
+    ):
+        (tmp_path / "transcript.json").write_text("[]", encoding="utf-8")
+        statuses = iter([{"status": "running"}, {"status": "completed"}])
+
+        async def fake_status(job):
+            return next(statuses)
+
+        async def fake_episode_of(job):
+            return {"id": "episode:x", "output_dir": str(tmp_path)}
+
+        monkeypatch.setattr(pipeline.PodcastService, "get_job_status", fake_status)
+        monkeypatch.setattr(pipeline, "_episode_of", fake_episode_of)
+        run = store.add(statut="en_cours", echeance=time.time() - 5)
+        assert (await pipeline._wait("command:7", run))["status"] == "completed"
+
+    @pytest.mark.asyncio
+    async def test_waiting_for_a_job_without_accepted_text_still_stops_at_the_deadline(self, store, monkeypatch):
+        async def fake_episode_of(job):
+            return None
+
+        monkeypatch.setattr(pipeline, "_episode_of", fake_episode_of)
+        run = store.add(statut="en_cours", echeance=time.time() - 5)
+        with pytest.raises(pipeline.ProductionFailed):
+            await pipeline._wait("command:7", run)
 
 
 X_POST = {
