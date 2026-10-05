@@ -11,6 +11,7 @@ Règles de fiabilité (recette du 30/09 au 02/10/2026):
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -58,6 +59,12 @@ class ProductionFailed(Exception):
 # 13 %), donc 5 tentatives échouaient une fois sur deux. Une tentative refusée coûte environ une minute : 12
 # tentatives tiennent dans les 70 minutes avec la voix (10 à 14 minutes).
 DEFAULT_MAX_ATTEMPTS = 12
+
+# Une voix déjà lancée (texte accepté par le contrôle) n'est jamais tuée à l'échéance des 70 minutes : le 05/10,
+# l'essai 7 est devenu un épisode terminé à 16:04 alors que la production avait été déclarée en échec à 15:42,
+# et Saqr n'a jamais vu cet épisode. Le plafond dur est l'échéance plus ce délai de grâce.
+VOICE_GRACE_SECONDS = 90 * 60
+JOB_FINISHED = ("completed", "failed", "canceled")
 
 
 def max_attempts() -> int:
@@ -274,7 +281,9 @@ def refusal_feedback(error: str) -> str:
 
 async def _wait(job: str, run: Dict[str, Any]) -> Dict[str, Any]:
     while True:
-        if time_left(run) <= 0:
+        if time_left(run) <= 0 and (
+            time_left(run) <= -VOICE_GRACE_SECONDS or not _is_resumable(await _episode_of(job))
+        ):
             raise ProductionFailed("Délai de production dépassé pendant la génération de l'épisode.")
         try:
             status = await PodcastService.get_job_status(job)
@@ -301,6 +310,54 @@ def _is_resumable(episode: Optional[Dict[str, Any]]) -> bool:
     """
     output_dir = (episode or {}).get("output_dir")
     return bool(output_dir) and (Path(str(output_dir)) / "transcript.json").is_file()
+
+
+async def _job_status(job: str) -> str:
+    try:
+        return str((await PodcastService.get_job_status(job)).get("status") or "")
+    except Exception as exc:  # noqa: BLE001 - un statut illisible ne doit jamais faire conclure à tort
+        logger.info(f"[veille] statut du job illisible ({type(exc).__name__})")
+        return ""
+
+
+async def episodes_of_run(run: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Épisodes de la veille créés depuis la réception de la demande, du plus récent au plus ancien.
+
+    Les tentatives de cette demande portent toutes le même nom; la marge de deux minutes couvre l'écart
+    entre la réception et la création de la ligne. Les épisodes d'une demande antérieure (avant un
+    « Régénérer ») sont exclus, car `echeance` repart à zéro à chaque relance.
+    """
+    started = float(run.get("echeance") or 0) - runs.deadline_seconds() - 120
+    since = datetime.fromtimestamp(started, tz=timezone.utc).isoformat()
+    return await repo_query(
+        "SELECT * FROM episode WHERE name = $name AND created >= type::datetime($since) ORDER BY created DESC",
+        {"name": f"Veille Saqr {ingest.date_of_ref(run['ref'])}", "since": since},
+    )
+
+
+async def voice_in_progress(run: Dict[str, Any]) -> bool:
+    """Vrai si une tentative acceptée par le contrôle est en synthèse vocale: on la laisse finir."""
+    if time_left(run) <= -VOICE_GRACE_SECONDS:
+        return False
+    for episode in await episodes_of_run(run):
+        if episode.get("audio_file") or not episode.get("command") or not _is_resumable(episode):
+            continue
+        status = await _job_status(str(episode["command"]))
+        if status and status not in JOB_FINISHED:
+            return True
+    return False
+
+
+async def adopt_completed(run: Dict[str, Any]) -> bool:
+    """Lie à la ligne l'épisode terminé qu'aucun essai n'a rattaché (échéance dépassée pendant la voix)."""
+    for episode in await episodes_of_run(run):
+        if not episode.get("audio_file") or not episode.get("command"):
+            continue
+        if await _job_status(str(episode["command"])) != "completed":
+            continue
+        await _finalize(run, str(episode["command"]))
+        return True
+    return False
 
 
 async def _finalize(run: Dict[str, Any], job: str) -> None:
@@ -472,7 +529,9 @@ async def run_veille(ref: str) -> None:
             left = time_left(run)
             if left <= 0:
                 raise ProductionFailed("Délai de production dépassé avant le début.")
-            await asyncio.wait_for(produce(run), timeout=left)
+            # plafond dur = échéance + délai de grâce de la voix: les essais de texte s'arrêtent à l'échéance
+            # (generate et _wait), une voix déjà lancée peut finir
+            await asyncio.wait_for(produce(run), timeout=left + VOICE_GRACE_SECONDS)
         except asyncio.TimeoutError:
             await fail(run_id, "Délai de production dépassé.")
         except ProductionFailed as exc:

@@ -34,13 +34,33 @@ async def _expire(run: Dict[str, Any], message: str) -> None:
         await pipeline.deliver_callback(final, attempts=1)
 
 
+async def _adopt_finished_episodes() -> None:
+    """Un épisode qui finit APRÈS la conclusion en échec est lié et annoncé « pret » (Saqr accepte « pret »
+    par-dessus un échec). Chaque matin, la liaison se fait ici, sans geste de personne."""
+    for run in await runs.list_recent_failed():
+        try:
+            if not await pipeline.adopt_completed(run):
+                continue
+        except pipeline.ProductionFailed as exc:
+            logger.warning(f"[veille] {run['ref']} : épisode terminé mais non adoptable ({exc})")
+            continue
+        logger.info(f"[veille] {run['ref']} : épisode terminé après l'échec, lié et annoncé « pret »")
+        await runs.update_run(str(run["id"]), rappel_statut="a_envoyer", rappel_tentatives=0)
+        final = await runs.get_run(run["ref"])
+        if final:
+            await pipeline.deliver_callback(final, attempts=1)
+
+
 async def reconcile_once() -> None:
+    await _adopt_finished_episodes()
     for run in await runs.list_pending_callbacks():
         await pipeline.deliver_callback(run, attempts=1)
 
     now = time.time()
     for run in await runs.list_active():
         if pipeline.time_left(run) <= 0:
+            if await pipeline.voice_in_progress(run):
+                continue  # la voix déjà lancée finit seule; sinon on conclurait un épisode qui va réussir
             await _expire(run, "Délai de production dépassé.")
             continue
         alive_since = max(float(run.get("battement") or 0), _started_at(run))
