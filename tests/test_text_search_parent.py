@@ -32,7 +32,7 @@ async def test_text_insights_keep_their_id_and_resolve_the_parent_source(
         # Only the search schema/functions are needed. Unrelated podcast
         # migrations depend on tables owned by podcast-creator.
         await db.query((MIGRATIONS / "1.surrealql").read_text())
-        for migration in AsyncMigrationManager().up_migrations[23:]:
+        for migration in AsyncMigrationManager().up_migrations[29:]:
             await db.query(migration.sql)
         await db.query(
             """
@@ -90,7 +90,7 @@ async def test_text_insights_keep_their_id_and_resolve_the_parent_source(
 
 
 @pytest.mark.asyncio
-async def test_migration_25_up_down_up_preserves_vector_search() -> None:
+async def test_migration_31_up_down_up_preserves_vector_search() -> None:
     from open_notebook.database.async_migrate import AsyncMigrationManager
 
     manager = AsyncMigrationManager()
@@ -98,7 +98,7 @@ async def test_migration_25_up_down_up_preserves_vector_search() -> None:
     async with AsyncSurreal("mem://") as db:
         await db.use("search_regression", "migration_cycle")
         await db.query((MIGRATIONS / "1.surrealql").read_text())
-        await db.query(manager.up_migrations[23].sql)
+        await db.query(manager.up_migrations[29].sql)
         await db.query(
             "CREATE source:parent SET title = 'Article';"
             "CREATE source_insight:insight SET source = source:parent,"
@@ -106,9 +106,9 @@ async def test_migration_25_up_down_up_preserves_vector_search() -> None:
         )
         before = functions(await db.query("INFO FOR DB;"))
         for migration, expected in [
-            (manager.up_migrations[24], "source:parent"),
-            (manager.down_migrations[24], "source_insight:insight"),
-            (manager.up_migrations[24], "source:parent"),
+            (manager.up_migrations[30], "source:parent"),
+            (manager.down_migrations[30], "source_insight:insight"),
+            (manager.up_migrations[30], "source:parent"),
         ]:
             await db.query(migration.sql)
             rows = records(
