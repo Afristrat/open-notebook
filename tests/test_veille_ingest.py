@@ -50,6 +50,18 @@ class TestSourceUrls:
         source = {"url": "https://news.google.com/rss/articles/xyz", "article_url": "https://editeur.example/a"}
         assert ingest.source_urls(source) == ("https://editeur.example/a", None)
 
+    def test_canonical_address_fills_in_when_article_url_is_empty(self):
+        source = {"url": "https://news.google.com/rss/articles/xyz", "article_url": None, "url_canonique": "https://editeur.example/b"}
+        assert ingest.source_urls(source) == ("https://editeur.example/b", None)
+
+    def test_canonical_address_never_replaces_an_article_url_already_read(self):
+        source = {"article_url": "https://editeur.example/a", "url_canonique": "https://editeur.example/b"}
+        assert ingest.source_urls(source) == ("https://editeur.example/a", None)
+
+    def test_unresolved_google_news_link_stays_the_last_resort(self):
+        source = {"url": "https://news.google.com/rss/articles/xyz", "url_canonique": None}
+        assert ingest.source_urls(source) == ("https://news.google.com/rss/articles/xyz", None)
+
 
 class TestClassify:
     def test_nothing_read_is_a_failure(self):

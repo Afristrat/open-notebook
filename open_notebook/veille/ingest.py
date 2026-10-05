@@ -131,8 +131,12 @@ def prefer_provided(source: Dict[str, Any], text: str) -> Tuple[str, bool]:
 
 
 def source_urls(source: Dict[str, Any]) -> Tuple[str, Optional[str]]:
-    """Adresse à lire (celle de l'éditeur si Saqr l'a résolue) et PDF complet d'un article arXiv."""
-    url = (source.get("article_url") or source.get("url") or "").strip()
+    """Adresse à lire (celle de l'éditeur si Saqr l'a résolue) et PDF complet d'un article arXiv.
+
+    `url_canonique` (contrat étendu du 05/10) ne passe qu'après `article_url`: elle ne sert que là où celui-ci
+    est vide (mesuré: 1 source sur 3 le 04/10, 2 sur 10 le 03/10), jamais à la place d'une adresse déjà lue.
+    """
+    url = (source.get("article_url") or source.get("url_canonique") or source.get("url") or "").strip()
     raw = (source.get("url") or "").strip()
     match = _ARXIV_ABS.search(raw) or _ARXIV_ABS.search(url)
     return url, (f"https://arxiv.org/pdf/{match.group(1)}" if match else None)
