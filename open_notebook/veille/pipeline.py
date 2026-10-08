@@ -314,7 +314,10 @@ def _is_resumable(episode: Optional[Dict[str, Any]]) -> bool:
 
 async def _job_status(job: str) -> str:
     try:
-        return str((await PodcastService.get_job_status(job)).get("status") or "")
+        raw = (await PodcastService.get_job_status(job)).get("status")
+        # Le statut est une énumération (`CommandStatus.COMPLETED`): str() en donne le nom, pas la valeur
+        # « completed » comparée plus bas; l'adoption d'un épisode terminé après l'échec n'a jamais abouti.
+        return str(getattr(raw, "value", raw) or "")
     except Exception as exc:  # noqa: BLE001 - un statut illisible ne doit jamais faire conclure à tort
         logger.info(f"[veille] statut du job illisible ({type(exc).__name__})")
         return ""

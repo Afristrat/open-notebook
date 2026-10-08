@@ -708,6 +708,19 @@ class TestFinishedEpisodes:
         assert (await pipeline._wait("command:7", run))["status"] == "completed"
 
     @pytest.mark.asyncio
+    async def test_the_job_status_is_read_from_the_enum_value_not_its_name(self, monkeypatch):
+        import enum
+
+        class CommandStatus(str, enum.Enum):  # même forme que celle de la file de commandes en production
+            COMPLETED = "completed"
+
+        async def fake_status(job):
+            return {"status": CommandStatus.COMPLETED}
+
+        monkeypatch.setattr(pipeline.PodcastService, "get_job_status", fake_status)
+        assert await pipeline._job_status("command:7") == "completed"
+
+    @pytest.mark.asyncio
     async def test_waiting_for_a_job_without_accepted_text_still_stops_at_the_deadline(self, store, monkeypatch):
         async def fake_episode_of(job):
             return None
