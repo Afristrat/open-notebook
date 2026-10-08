@@ -328,7 +328,26 @@ class TestProduce:
         assert store.by_ref(REF)["rapport"]["notebook"] == "notebook:test"
 
     @pytest.mark.asyncio
-    async def test_more_than_ten_percent_unusable_sources_means_no_podcast(self, store, notebook, monkeypatch):
+    async def test_unusable_sources_are_reported_but_do_not_block_the_podcast(self, store, notebook, monkeypatch):
+        async def fake_fetch(ref):
+            return _piece()
+
+        captured = {}
+
+        async def fake_generate(run, content, name):
+            captured.update(content=content, name=name)
+
+        monkeypatch.setattr(pipeline, "fetch_piece", fake_fetch)
+        monkeypatch.setattr(pipeline, "generate", fake_generate)
+        _scripted_reads(monkeypatch, {1})
+        await pipeline.produce(store.add())
+        report = store.by_ref(REF)["rapport"]
+        assert report["exploitables"] == 1 and report["taux_alteration"] > 0.10
+        assert captured["name"] == "Veille Saqr 2026-10-02"
+        assert len(notebook[REF]) == 1
+
+    @pytest.mark.asyncio
+    async def test_without_any_usable_source_there_is_no_podcast(self, store, notebook, monkeypatch):
         async def fake_fetch(ref):
             return _piece()
 
@@ -337,12 +356,10 @@ class TestProduce:
 
         monkeypatch.setattr(pipeline, "fetch_piece", fake_fetch)
         monkeypatch.setattr(pipeline, "generate", never)
-        _scripted_reads(monkeypatch, {1})
-        with pytest.raises(pipeline.ProductionFailed, match="inexploitables"):
+        _scripted_reads(monkeypatch, set())
+        with pytest.raises(pipeline.ProductionFailed, match="Aucune source exploitable"):
             await pipeline.produce(store.add())
-        report = store.by_ref(REF)["rapport"]
-        assert report["exploitables"] == 1 and report["taux_alteration"] > ingest.MAX_ALTERATION
-        assert len(notebook[REF]) == 1  # le notebook existe même quand la production échoue
+        assert store.by_ref(REF)["rapport"]["exploitables"] == 0
 
     @pytest.mark.asyncio
     async def test_without_a_notebook_there_is_no_podcast(self, store, monkeypatch):

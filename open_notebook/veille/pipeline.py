@@ -454,11 +454,11 @@ async def produce(run: Dict[str, Any]) -> None:
             "detail": [r.report() for r in results],
         },
     )
-    if rate > ingest.MAX_ALTERATION:
-        raise ProductionFailed(
-            f"{round(rate * 100)} % des sources sont inexploitables "
-            f"(plafond {round(ingest.MAX_ALTERATION * 100)} %) : pas de podcast."
-        )
+    # Saqr trie déjà ses signaux: le taux d'altération est rapporté, il ne bloque plus la production
+    # (décision d'Amine, 08/10 : avec 9 sources, une seule défaillance dépassait l'ancien plafond de 10 %).
+    # Sans aucune source exploitable, il n'y a rien à dire: pas de podcast.
+    if not usable:
+        raise ProductionFailed("Aucune source exploitable : pas de podcast.")
     content = ingest.build_content(run["ref"], markdown, stored)
     await generate(run, content, f"Veille Saqr {ingest.date_of_ref(run['ref'])}")
 
