@@ -4,6 +4,7 @@ Une ligne par veille (ref unique). La ligne est la mémoire du service: un redé
 milieu d'une production ne perd ni la demande ni l'annonce due à Saqr (voir reconcile.py).
 """
 
+import asyncio
 import os
 import time
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,10 @@ from open_notebook.database.repository import ensure_record_id, repo_create, rep
 ACTIVE = ("accepte", "en_cours")
 TERMINAL = ("pret", "echec")
 DEFAULT_DEADLINE_MINUTES = 70.0
+# SurrealDB refuse une transaction concurrente sur la même ligne et indique qu'elle peut être rejouée
+CONFLICT_MARK = "read or write conflict"
+UPDATE_ATTEMPTS = 5
+UPDATE_BACKOFF_SECONDS = 0.1
 
 # Seuls ces champs peuvent être écrits par update_run: leurs noms entrent dans la requête.
 _WRITABLE = {
@@ -95,7 +100,17 @@ async def update_run(run_id: str, **fields: Any) -> None:
             params[key] = value
     if not assignments:
         return
-    await repo_query(f"UPDATE $id SET {', '.join(assignments)}, updated = time::now()", params)
+    query = f"UPDATE $id SET {', '.join(assignments)}, updated = time::now()"
+    for attempt in range(UPDATE_ATTEMPTS):
+        try:
+            await repo_query(query, params)
+            return
+        except Exception as exc:  # noqa: BLE001 - seul le conflit d'écriture est rejoué, le reste remonte
+            if CONFLICT_MARK not in str(exc) or attempt == UPDATE_ATTEMPTS - 1:
+                raise
+            # le battement (_heartbeat) et produce écrivent la même ligne au même instant au démarrage:
+            # SurrealDB demande de rejouer la transaction (veille du 09/10, requête de 07:55:01)
+            await asyncio.sleep(UPDATE_BACKOFF_SECONDS * (attempt + 1))
 
 
 async def list_active() -> List[Dict[str, Any]]:
