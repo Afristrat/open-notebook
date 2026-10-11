@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { formatDistanceToNow } from 'date-fns'
 import { getDateLocale } from '@/lib/utils/date-locale'
-import { Globe, InfoIcon, Loader2, RefreshCcw, Trash2 } from 'lucide-react'
+import { Globe, InfoIcon, Loader2, RefreshCcw, Send, Trash2 } from 'lucide-react'
 
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -13,6 +13,7 @@ import { QUERY_KEYS } from '@/lib/api/query-client'
 import {
   usePodcastEpisodeProgress,
   usePublishEpisode,
+  useResendEpisodeToSaqr,
   useUnpublishEpisode,
 } from '@/lib/hooks/use-podcasts'
 import {
@@ -21,6 +22,7 @@ import {
   EpisodeStatus,
   FAILED_EPISODE_STATUSES,
   PodcastEpisode,
+  isSaqrVeilleEpisode,
 } from '@/lib/types/podcasts'
 import { cn } from '@/lib/utils'
 import {
@@ -196,6 +198,7 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
 
   const publishEpisode = usePublishEpisode()
   const unpublishEpisode = useUnpublishEpisode()
+  const resendToSaqr = useResendEpisodeToSaqr()
 
   const hasAudio = Boolean(episode.audio_url || episode.audio_file)
   const isPublished = episode.published
@@ -292,6 +295,8 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
   }
 
   const isFailed = FAILED_EPISODE_STATUSES.includes(episode.job_status as EpisodeStatus)
+  // Only a finished "Veille Saqr" episode can be sent back: Saqr never hears about episodes made outside its circuit.
+  const canResendToSaqr = isSaqrVeilleEpisode(episode.name) && hasAudio && !isActive && !isFailed
 
   return (
     <Card>
@@ -484,6 +489,34 @@ export function EpisodeCard({ episode, onDelete, deleting, onRetry, retrying }: 
                 <RefreshCcw className={cn('mr-2 h-4 w-4', retrying && 'animate-spin')} />
                 {retrying ? t('podcasts.retrying') : t('podcasts.retry')}
               </Button>
+            ) : null}
+            {canResendToSaqr ? (
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="outline" size="sm" disabled={resendToSaqr.isPending}>
+                    {resendToSaqr.isPending ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="mr-2 h-4 w-4" />
+                    )}
+                    {resendToSaqr.isPending ? t('podcasts.resending') : t('podcasts.resendToSaqr')}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>{t('podcasts.resendToSaqrTitle')}</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {t('podcasts.resendToSaqrDesc', { name: episode.name })}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => resendToSaqr.mutate(episode.id)}>
+                      {t('podcasts.resendToSaqr')}
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             ) : null}
             <Tooltip>
               <TooltipTrigger asChild>

@@ -17,6 +17,7 @@ from open_notebook.exceptions import OpenNotebookError
 from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
 from open_notebook.podcasts.models import PodcastEpisode
 from open_notebook.podcasts.progress import compute_episode_progress
+from open_notebook.veille import renvoi
 
 router = APIRouter()
 
@@ -483,6 +484,18 @@ async def retry_podcast_episode(episode_id: str):
     except Exception as e:
         logger.error(f"Error retrying podcast episode: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to retry episode")
+
+
+@router.post("/podcasts/episodes/{episode_id}/renvoyer-saqr")
+async def resend_podcast_episode_to_saqr(episode_id: str):
+    """Announce a "Veille Saqr" episode as ready to Saqr, with the revision of Saqr's own request.
+
+    For an episode produced outside the API circuit (studio, manual retry), which never notifies Saqr.
+    """
+    try:
+        return await renvoi.resend(episode_id)
+    except renvoi.RenvoiRefused as exc:
+        raise HTTPException(status_code=exc.status, detail=str(exc))
 
 
 @router.delete("/podcasts/episodes/{episode_id}")

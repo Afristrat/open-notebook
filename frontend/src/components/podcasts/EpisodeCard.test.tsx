@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { EpisodeCard } from './EpisodeCard'
+import { podcastsApi } from '@/lib/api/podcasts'
 import type { PodcastEpisode } from '@/lib/types/podcasts'
 
 // useTranslation is mocked globally in setup.ts (t returns the key string)
@@ -13,6 +14,9 @@ vi.mock('@/lib/api/client', () => ({
 
 vi.mock('@/lib/api/podcasts', () => ({
   resolvePodcastAssetUrl: vi.fn(async () => undefined),
+  podcastsApi: {
+    resendToSaqr: vi.fn(async () => ({ ref: 'veille-2026-10-11', episode: 'episode:1', rappel: 'envoye' })),
+  },
 }))
 
 function makeEpisode(overrides: Partial<PodcastEpisode> = {}): PodcastEpisode {
@@ -145,5 +149,45 @@ describe('EpisodeCard model details', () => {
     )
 
     expect(screen.getAllByText('— / —')).toHaveLength(3)
+  })
+})
+
+describe('EpisodeCard resend to Saqr', () => {
+  function renderCard(episode: PodcastEpisode) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={queryClient}>
+        <EpisodeCard episode={episode} onDelete={vi.fn()} />
+      </QueryClientProvider>
+    )
+  }
+
+  const veille = { name: 'Veille Saqr 2026-10-11', audio_file: 'episodes/abc/audio/abc.mp3' }
+
+  it('offers the button on a finished veille episode that has audio', () => {
+    renderCard(makeEpisode(veille))
+    expect(screen.getByText('podcasts.resendToSaqr')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['another episode name', { name: 'Test Episode', audio_file: 'a.mp3' }],
+    ['a veille episode name with a suffix', { name: 'Veille Saqr 2026-10-11 bis', audio_file: 'a.mp3' }],
+    ['a veille episode without audio', { name: 'Veille Saqr 2026-10-11', audio_file: null }],
+    ['a failed veille episode', { ...veille, job_status: 'failed' as const }],
+    ['a veille episode still generating', { ...veille, job_status: 'running' as const }],
+  ])('hides the button for %s', (_label, overrides) => {
+    renderCard(makeEpisode(overrides))
+    expect(screen.queryByText('podcasts.resendToSaqr')).not.toBeInTheDocument()
+  })
+
+  it('asks for confirmation, then sends the episode id', async () => {
+    renderCard(makeEpisode(veille))
+    fireEvent.click(screen.getByText('podcasts.resendToSaqr'))
+    expect(podcastsApi.resendToSaqr).not.toHaveBeenCalled()
+    expect(screen.getByText('podcasts.resendToSaqrTitle')).toBeInTheDocument()
+    const confirm = screen.getAllByText('podcasts.resendToSaqr').find((el) => el.closest('[role="alertdialog"]'))
+    expect(confirm).toBeDefined()
+    fireEvent.click(confirm as HTMLElement)
+    await waitFor(() => expect(podcastsApi.resendToSaqr).toHaveBeenCalledWith('episode:1'))
   })
 })

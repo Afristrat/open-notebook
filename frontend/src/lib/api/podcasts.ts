@@ -5,6 +5,7 @@ import {
   PodcastFeed,
   PublishEpisodeRequest,
   PublishEpisodeResponse,
+  ResendToSaqrResponse,
   UnpublishEpisodeResponse,
   EpisodeProfile,
   SpeakerProfile,
@@ -70,6 +71,13 @@ export const podcastsApi = {
   unpublishEpisode: async (episodeId: string) => {
     const response = await apiClient.post<UnpublishEpisodeResponse>(
       `/podcasts/episodes/${episodeId}/unpublish`
+    )
+    return response.data
+  },
+
+  resendToSaqr: async (episodeId: string) => {
+    const response = await apiClient.post<ResendToSaqrResponse>(
+      `/podcasts/episodes/${episodeId}/renvoyer-saqr`
     )
     return response.data
   },

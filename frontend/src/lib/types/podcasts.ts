@@ -119,6 +119,22 @@ export interface PublishEpisodeResponse {
   published_at: string
 }
 
+export interface ResendToSaqrResponse {
+  ref: string
+  episode: string
+  revision: string
+  dureeS: number | null
+  audioUrl: string | null
+  rappel: 'envoye'
+}
+
+// Name given to every episode produced for Saqr's daily veille ("Veille Saqr 2026-10-11").
+const SAQR_VEILLE_EPISODE_NAME = /^Veille Saqr \d{4}-\d{2}-\d{2}$/
+
+export function isSaqrVeilleEpisode(name: string): boolean {
+  return SAQR_VEILLE_EPISODE_NAME.test(name)
+}
+
 export interface UnpublishEpisodeResponse {
   episode_id: string
   published: boolean

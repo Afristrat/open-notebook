@@ -92,3 +92,21 @@ Deux pièges rencontrés, à connaître avant toute opération Coolify sur cette
   sans source ; tout autre nombre absent des sources reste refusé.
 - Voix : inchangées (profil de voix `veille`, voix Higgs). La demande de Saqr d'utiliser les voix de Qalem est
   traitée à part.
+
+## Renvoi manuel à Saqr (11/10/2026)
+
+Un épisode « Veille Saqr AAAA-MM-JJ » produit hors du circuit de l'API (studio, relance à la main) n'annonce jamais
+« pret » à Saqr, qui affiche alors « echec » alors que l'audio existe (08/10 et 11/10). Le bouton « Renvoyer à Saqr »
+de la carte d'épisode appelle `POST /api/podcasts/episodes/{id}/renvoyer-saqr` (`open_notebook/veille/renvoi.py`).
+
+- **Révision** : celle de la demande de Saqr, lue dans `veille_run`, jamais déduite d'un texte. Un épisode créé avant
+  cette demande (marge de 120 s, comme `episodes_of_run`) correspond à une autre révision et est refusé (409).
+- **Refus** (sans rappel) : nom autre que « Veille Saqr AAAA-MM-JJ » (422), veille jamais demandée (404), production
+  en cours (409), épisode sans audio ou MP3 invalide (409).
+- **Rappel** : le même corps que le rappel automatique (`ref`, `revision`, `statut: "pret"`, `audio_url`, `page_url`,
+  `duree_s`), un seul essai. Saqr remplace l'épisode précédent de la même révision, et un « echec » tardif n'écrase
+  jamais un « pret » (contrat confirmé par sa session le 11/10).
+- **Refus de Saqr** (400, 401, 403, 404) : la ligne de suivi retrouve son état d'avant, la raison de Saqr est rendue
+  (502). **Saqr injoignable** : l'épisode reste rattaché, le rappel reste « a_envoyer » et la boucle de reprise le
+  rejoue (503).
+- Comme le reste de `/api/podcasts/*`, la route n'est pas protégée tant que l'authentification globale est désactivée.
