@@ -216,6 +216,7 @@ async def read_sources(sources: List[Dict[str, Any]]) -> List[ingest.SourceResul
             editeur=str(source.get("plateforme") or ""),
             meta=str(source.get("meta") or ""),
             url=ingest.source_urls(source)[0],
+            citee=source.get("citee") is not False,  # absent (ancien contrat) = citée
         )
         if statut in (ingest.INGEREE, ingest.REPRISE):
             result.texte = ingest.build_source_text(text, article)
@@ -228,12 +229,18 @@ async def read_sources(sources: List[Dict[str, Any]]) -> List[ingest.SourceResul
 # --- notebook --------------------------------------------------------------
 
 
+NON_CITEE_MARQUE = "[SOURCE NON CITÉE PAR LA VEILLE : tout fait ou chiffre qui en vient est dit avec le nom de son éditeur]"
+
+
 def source_title(result: ingest.SourceResult) -> str:
     """Titre de la source dans le notebook, tel que les voix le liront: sans numéro.
 
     Le titre « [Source 6] … » faisait dire « la source 6 » aux voix (constaté le 12/10): une source se nomme.
     """
-    return f"{result.titre} ({result.editeur}, {result.meta})"
+    title = f"{result.titre} ({result.editeur}, {result.meta})"
+    # Source lue par Saqr mais non appelée dans le corps de la veille: elle sert la profondeur, jamais une
+    # affirmation de la veille. Règle d'Amine (12/10): tout fait qui en vient est attribué à son éditeur à l'antenne.
+    return title if result.citee else f"{title} {NON_CITEE_MARQUE}"
 
 
 def unique_titles(results: List[ingest.SourceResult]) -> List[str]:

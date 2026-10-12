@@ -1153,3 +1153,12 @@ class TestLinkedArxivPdf:
             {"url": "https://editeur.example/a", "titre": "x"}, asyncio.Semaphore(1)
         )
         assert called == []
+
+
+def test_source_non_citee_est_marquee_dans_son_titre():
+    """Règle d'Amine (12/10): un fait venu d'une source `citee: false` est attribué à son éditeur."""
+    citee = _result(1, "texte")
+    non_citee = _result(2, "texte")
+    non_citee.citee = False
+    assert pipeline.NON_CITEE_MARQUE not in pipeline.source_title(citee)
+    assert pipeline.source_title(non_citee).endswith(pipeline.NON_CITEE_MARQUE)

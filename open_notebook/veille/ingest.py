@@ -60,6 +60,7 @@ class SourceResult:
     meta: str
     url: str
     texte: str = ""
+    citee: bool = True  # False: lue par Saqr mais non appelée dans le corps de la veille (champ `citee`)
 
     def report(self) -> Dict[str, Any]:
         """Version sans texte, destinee au rapport conserve en base."""
