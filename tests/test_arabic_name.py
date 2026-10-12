@@ -25,7 +25,11 @@ from open_notebook.podcasts.tts_text import apply_lexicon
 def tone(seconds: float, amplitude: int = 12000, freq: int = 220) -> array.array:
     count = int(an.SAMPLE_RATE * seconds)
     return array.array(
-        "h", [int(amplitude * math.sin(2 * math.pi * freq * i / an.SAMPLE_RATE)) for i in range(count)]
+        "h",
+        [
+            int(amplitude * math.sin(2 * math.pi * freq * i / an.SAMPLE_RATE))
+            for i in range(count)
+        ],
     )
 
 
@@ -36,14 +40,22 @@ def flat(seconds: float, level: int = 0) -> array.array:
 class TestSplit:
     def test_a_name_between_two_french_parts(self):
         assert an.split_around_name("Merci Hanaa pour ce terrain.") == [
-            (False, "Merci "), (True, "Hanaa"), (False, " pour ce terrain."),
+            (False, "Merci "),
+            (True, "Hanaa"),
+            (False, " pour ce terrain."),
         ]
 
     def test_a_name_at_the_start_has_no_empty_french_part(self):
-        assert an.split_around_name("Hanaa, qu'en penses-tu ?") == [(True, "Hanaa"), (False, ", qu'en penses-tu ?")]
+        assert an.split_around_name("Hanaa, qu'en penses-tu ?") == [
+            (True, "Hanaa"),
+            (False, ", qu'en penses-tu ?"),
+        ]
 
     def test_punctuation_alone_is_dropped_and_case_is_free(self):
-        assert an.split_around_name("Merci hanaa.") == [(False, "Merci "), (True, "hanaa")]
+        assert an.split_around_name("Merci hanaa.") == [
+            (False, "Merci "),
+            (True, "hanaa"),
+        ]
 
     def test_two_occurrences(self):
         parts = an.split_around_name("Hanaa, voici ce que dit Hanaa sur le terrain.")
@@ -62,7 +74,10 @@ class TestSplit:
 
 class TestFragmentCandidates:
     def test_the_fragment_is_tried_as_is_then_without_edge_punctuation(self):
-        assert an.fragment_candidates(", qu'en penses-tu ?")[:2] == [", qu'en penses-tu ?", "qu'en penses-tu ?"]
+        assert an.fragment_candidates(", qu'en penses-tu ?")[:2] == [
+            ", qu'en penses-tu ?",
+            "qu'en penses-tu ?",
+        ]
 
     def test_a_short_fragment_has_a_single_padded_writing(self):
         assert an.fragment_candidates("Merci ") == ["Merci ..."]
@@ -73,7 +88,9 @@ class TestFragmentCandidates:
 
 class TestReferenceClips:
     @pytest.mark.parametrize("voice", ["rim", "mehdi", "younes", "hanae"])
-    def test_every_voice_of_the_panel_has_a_reference_clip_of_a_plausible_length(self, voice):
+    def test_every_voice_of_the_panel_has_a_reference_clip_of_a_plausible_length(
+        self, voice
+    ):
         path = an.reference_clip(voice)
         assert path is not None
         seconds = len(an.read_wav(path)) / an.SAMPLE_RATE
@@ -83,17 +100,23 @@ class TestReferenceClips:
         assert an.reference_clip("khalid") is None
 
     @pytest.mark.asyncio
-    async def test_the_reference_clip_is_used_without_any_call_to_the_engine(self, tmp_path, monkeypatch):
+    async def test_the_reference_clip_is_used_without_any_call_to_the_engine(
+        self, tmp_path, monkeypatch
+    ):
         def never(*args, **kwargs):
             raise AssertionError("aucun appel réseau attendu")
 
         monkeypatch.setattr(an.httpx, "AsyncClient", never)
         out = tmp_path / "name.wav"
         await an.fetch_name_clip("rim", out)
-        assert out.read_bytes() == an.reference_clip("rim").read_bytes()
+        reference = an.reference_clip("rim")
+        assert reference is not None, "la voix rim doit avoir un clip de référence"
+        assert out.read_bytes() == reference.read_bytes()
 
     @pytest.mark.asyncio
-    async def test_a_voice_without_reference_falls_back_on_the_engine(self, tmp_path, monkeypatch):
+    async def test_a_voice_without_reference_falls_back_on_the_engine(
+        self, tmp_path, monkeypatch
+    ):
         calls = []
 
         class Boom:
@@ -129,7 +152,9 @@ class TestCut:
             an.cut_after_carrier(flat(1.0))
 
 
-@pytest.mark.skipif(not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg absent")
+@pytest.mark.skipif(
+    not (shutil.which("ffmpeg") and shutil.which("ffprobe")), reason="ffmpeg absent"
+)
 class TestAssemble:
     @pytest.mark.asyncio
     async def test_the_parts_become_one_mp3_of_the_summed_length(self, tmp_path):
@@ -142,8 +167,18 @@ class TestAssemble:
         await an.assemble(parts, out)
         seconds = float(
             subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", str(out)],
-                capture_output=True, text=True,
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-of",
+                    "default=nw=1:nk=1",
+                    str(out),
+                ],
+                capture_output=True,
+                text=True,
             ).stdout
         )
         assert 1.0 <= seconds <= 1.3
@@ -157,7 +192,9 @@ class TestLexicon:
     def test_only_the_whole_word(self):
         assert apply_lexicon("Mehdia") == "Mehdia"
 
-    def test_the_dia_agency_is_spelled_letter_by_letter_and_never_confused_with_d_ia(self):
+    def test_the_dia_agency_is_spelled_letter_by_letter_and_never_confused_with_d_ia(
+        self,
+    ):
         text = "Le sprint de la DIA pour bâtir sa plateforme d'IA d'entreprise, via ChatDIA."
         assert apply_lexicon(text) == (
             "Le sprint de la D I A pour bâtir sa plateforme d'IA d'entreprise, via ChatDIA."
@@ -167,18 +204,27 @@ class TestLexicon:
         assert apply_lexicon("une dia") == "une dia"
 
     def test_challenge_is_read_the_french_way(self):
-        assert apply_lexicon("Il challenge ce point, ce challenge, les challenges, ils challengent.") == (
-            "Il chalanje ce point, ce chalanje, les chalanjes, ils chalanjent."
+        assert apply_lexicon(
+            "Il challenge ce point, ce challenge, les challenges, ils challengent."
+        ) == ("Il chalanje ce point, ce chalanje, les chalanjes, ils chalanjent.")
+        assert (
+            apply_lexicon("Il faut challenger ce chiffre.")
+            == "Il faut chalanjé ce chiffre."
         )
-        assert apply_lexicon("Il faut challenger ce chiffre.") == "Il faut chalanjé ce chiffre."
         assert apply_lexicon("Un Challenge de plus") == "Un chalanje de plus"
 
     def test_younes_is_written_with_its_accent_for_the_engine(self):
-        assert apply_lexicon("Merci Younes, et à Younes aussi.") == "Merci Younès, et à Younès aussi."
+        assert (
+            apply_lexicon("Merci Younes, et à Younes aussi.")
+            == "Merci Younès, et à Younès aussi."
+        )
         assert apply_lexicon("Younesse") == "Younesse"
 
     def test_abbreviated_us_ranks_are_spoken_in_full(self):
-        assert apply_lexicon("Maj. Gen. Robert Kinney évoque") == "major général Robert Kinney évoque"
+        assert (
+            apply_lexicon("Maj. Gen. Robert Kinney évoque")
+            == "major général Robert Kinney évoque"
+        )
         assert apply_lexicon("Lt. Gen. Smith et Brig. Gen. Jones") == (
             "lieutenant général Smith et général de brigade Jones"
         )
@@ -251,8 +297,12 @@ def chain(monkeypatch):
 
 class TestClipWithArabicName:
     @pytest.mark.asyncio
-    async def test_the_name_is_spoken_in_arabic_in_the_voice_of_the_speaker(self, tmp_path, chain):
-        info = make_info(tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?")
+    async def test_the_name_is_spoken_in_arabic_in_the_voice_of_the_speaker(
+        self, tmp_path, chain
+    ):
+        info = make_info(
+            tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?"
+        )
 
         await ra.synthesize_clip_resilient(info)
 
@@ -263,7 +313,9 @@ class TestClipWithArabicName:
         assert [e[0] for e in chain.events].count("librairie") == 0
 
     @pytest.mark.asyncio
-    async def test_a_fragment_before_the_name_is_padded_and_keeps_the_voice_language(self, tmp_path, chain):
+    async def test_a_fragment_before_the_name_is_padded_and_keeps_the_voice_language(
+        self, tmp_path, chain
+    ):
         info = make_info(tmp_path, "Rim", "rim", "Merci Hanaa.")
 
         await ra.synthesize_clip_resilient(info)
@@ -273,11 +325,19 @@ class TestClipWithArabicName:
 
     @pytest.mark.asyncio
     async def test_two_occurrences_give_two_arabic_names(self, tmp_path, chain):
-        info = make_info(tmp_path, "Younes", "younes", "Hanaa, voici ce que dit Hanaa sur le terrain au Maroc.")
+        info = make_info(
+            tmp_path,
+            "Younes",
+            "younes",
+            "Hanaa, voici ce que dit Hanaa sur le terrain au Maroc.",
+        )
 
         await ra.synthesize_clip_resilient(info)
 
-        assert [e for e in chain.events if e[0] == "nom"] == [("nom", "younes"), ("nom", "younes")]
+        assert [e for e in chain.events if e[0] == "nom"] == [
+            ("nom", "younes"),
+            ("nom", "younes"),
+        ]
         assert ("assemble", [".wav", ".mp3", ".wav", ".mp3"]) in chain.events
 
     @pytest.mark.asyncio
@@ -293,7 +353,9 @@ class TestClipWithArabicName:
         logs: List[str] = []
         sink = logger.add(lambda message: logs.append(str(message)), level="WARNING")
         monkeypatch.setattr(ra.arabic_name, "fetch_name_clip", broken)
-        info = make_info(tmp_path, "Hanaa", "hanae", "Merci beaucoup, c'est Hanaa qui parle ici.")
+        info = make_info(
+            tmp_path, "Hanaa", "hanae", "Merci beaucoup, c'est Hanaa qui parle ici."
+        )
 
         try:
             path = await ra.synthesize_clip_resilient(info)
@@ -302,7 +364,10 @@ class TestClipWithArabicName:
 
         assert path.exists()
         assert len(calls) == ra.ARABIC_NAME_ATTEMPTS
-        assert ("librairie", "Merci beaucoup, c'est Hanaa qui parle ici.") in chain.events
+        assert (
+            "librairie",
+            "Merci beaucoup, c'est Hanaa qui parle ici.",
+        ) in chain.events
         assert not (tmp_path / "arabic_name" / "0000").exists()
         text = " ".join(logs)
         assert "clip 0000 (Hanaa)" in text and "étape 2, prénom arabe" in text
@@ -321,7 +386,9 @@ class TestClipWithArabicName:
             output_wav.write_bytes(b"x" * 2000)
 
         monkeypatch.setattr(ra.arabic_name, "fetch_name_clip", flaky)
-        info = make_info(tmp_path, "Younes", "younes", "Hanaa, qu'en penses-tu de ce chiffre ?")
+        info = make_info(
+            tmp_path, "Younes", "younes", "Hanaa, qu'en penses-tu de ce chiffre ?"
+        )
 
         await ra.synthesize_clip_resilient(info)
 
@@ -340,7 +407,9 @@ class TestClipWithArabicName:
             output_file.write_bytes(b"x" * 2000)
 
         monkeypatch.setattr(ra, "_speak", picky)
-        info = make_info(tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?")
+        info = make_info(
+            tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?"
+        )
 
         await ra.synthesize_clip_resilient(info)
 
@@ -351,18 +420,24 @@ class TestClipWithArabicName:
 
     @pytest.mark.asyncio
     async def test_a_reply_without_the_name_is_untouched(self, tmp_path, chain):
-        info = make_info(tmp_path, "Mehdi", "mehdi", "La source indique un chiffre précis.")
+        info = make_info(
+            tmp_path, "Mehdi", "mehdi", "La source indique un chiffre précis."
+        )
 
         await ra.synthesize_clip_resilient(info)
 
         assert [e[0] for e in chain.events] == ["librairie", "filtre"]
 
     @pytest.mark.asyncio
-    async def test_a_clip_made_before_the_arabic_name_is_regenerated(self, tmp_path, chain):
+    async def test_a_clip_made_before_the_arabic_name_is_regenerated(
+        self, tmp_path, chain
+    ):
         old = tmp_path / "clips" / "0000.mp3"
         old.parent.mkdir(parents=True)
         old.write_bytes(b"y" * 2000)
-        info = make_info(tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?")
+        info = make_info(
+            tmp_path, "Mehdi", "mehdi", "Hanaa, qu'en penses-tu de ce chiffre ?"
+        )
 
         await ra.synthesize_clip_resilient(info)
 

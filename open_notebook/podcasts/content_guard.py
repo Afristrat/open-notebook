@@ -46,7 +46,10 @@ WORDS_PER_MINUTE = 163
 
 def min_words_for(corpus: str) -> int:
     """Minimum de mots exigé pour ces sources : MIN_WORDS pour un jour riche, moins pour un jour mince."""
-    return min(MIN_WORDS, max(MIN_WORDS_FLOOR, int(len(corpus) * THIN_DAY_WORDS_PER_CHAR)))
+    return min(
+        MIN_WORDS, max(MIN_WORDS_FLOOR, int(len(corpus) * THIN_DAY_WORDS_PER_CHAR))
+    )
+
 
 # Ouverture : chaque intervenant doit avoir été nommé ET avoir pris la parole dans
 # ces premières répliques (retour d'écoute d'Amine, 2026-10-01 : l'épisode entrait
@@ -73,13 +76,36 @@ HOST_CLOSES = True
 
 # Nombres français écrits en lettres (« quatre mille », « cent cinquante mille »).
 _UNITS = {
-    "zero": 0, "un": 1, "une": 1, "deux": 2, "trois": 3, "quatre": 4, "cinq": 5,
-    "six": 6, "sept": 7, "huit": 8, "neuf": 9, "dix": 10, "onze": 11, "douze": 12,
-    "treize": 13, "quatorze": 14, "quinze": 15, "seize": 16, "trente": 30,
-    "quarante": 40, "cinquante": 50, "soixante": 60,
+    "zero": 0,
+    "un": 1,
+    "une": 1,
+    "deux": 2,
+    "trois": 3,
+    "quatre": 4,
+    "cinq": 5,
+    "six": 6,
+    "sept": 7,
+    "huit": 8,
+    "neuf": 9,
+    "dix": 10,
+    "onze": 11,
+    "douze": 12,
+    "treize": 13,
+    "quatorze": 14,
+    "quinze": 15,
+    "seize": 16,
+    "trente": 30,
+    "quarante": 40,
+    "cinquante": 50,
+    "soixante": 60,
 }
-_MULTIPLIERS = {"mille": 1000, "million": 10**6, "millions": 10**6,
-                "milliard": 10**9, "milliards": 10**9}
+_MULTIPLIERS = {
+    "mille": 1000,
+    "million": 10**6,
+    "millions": 10**6,
+    "milliard": 10**9,
+    "milliards": 10**9,
+}
 _NUMBER_WORDS = set(_UNITS) | set(_MULTIPLIERS) | {"vingt", "vingts", "cent", "cents"}
 
 MARKER = "[CONTRÔLE VEILLE]"
@@ -92,19 +118,43 @@ DATE_LINE_PREFIX = "date de la veille :"
 _FORBIDDEN = (
     ("prix", r"\bprix\b", r"\bprices?\b|\bpricing\b"),
     # « API list-equivalent rates » (une source) justifie « tarifs API » ; « rate » seul (error rate) non.
-    ("tarif", r"\btarif(?:s|ication)?\b", r"\btariffs?\b|\brate cards?\b|\b(?:api|list)(?:[- ]equivalent)? rates?\b"),
+    (
+        "tarif",
+        r"\btarif(?:s|ication)?\b",
+        r"\btariffs?\b|\brate cards?\b|\b(?:api|list)(?:[- ]equivalent)? rates?\b",
+    ),
     ("licence", r"\blicences?\b", r"\blicen[sc](?:e|es|ed|ing)\b"),
-    ("appel d'offres", r"\bappels? d'offres?\b", r"\btenders?\b|\brequests? for proposals?\b|\brfps?\b"),
-    ("canal de vente", r"\bcanau(?:x|l) de vente\b", r"\b(?:sales|distribution) channels?\b|\bresellers?\b"),
-    ("modèle de revenus", r"\bmodeles? de revenus?\b", r"\brevenue models?\b|\bbusiness models?\b"),
+    (
+        "appel d'offres",
+        r"\bappels? d'offres?\b",
+        r"\btenders?\b|\brequests? for proposals?\b|\brfps?\b",
+    ),
+    (
+        "canal de vente",
+        r"\bcanau(?:x|l) de vente\b",
+        r"\b(?:sales|distribution) channels?\b|\bresellers?\b",
+    ),
+    (
+        "modèle de revenus",
+        r"\bmodeles? de revenus?\b",
+        r"\brevenue models?\b|\bbusiness models?\b",
+    ),
     ("go-to-market", r"\bgo[- ]to[- ]market\b", r"\bgo[- ]to[- ]market\b"),
     ("pricing", r"\bpricing\b", r"\bpricing\b|\bprices?\b"),
     ("abonnement", r"\babonnements?\b", r"\bsubscriptions?\b"),
     ("revendeur", r"\brevendeurs?\b", r"\bresellers?\b"),
     ("rentabilité", r"\brentabilite\b", r"\bprofitab\w*|\bprofit margins?\b"),
     ("monétisation", r"\bmonetis\w*", r"\bmoneti[sz]\w*"),
-    ("mise sur le marché", r"\bmise sur le marche\b", r"\bgo[- ]to[- ]market\b|\bmarket entry\b"),
-    ("stratégie commerciale", r"\bstrategie commerciale\b", r"\b(?:commercial|sales) strateg\w*"),
+    (
+        "mise sur le marché",
+        r"\bmise sur le marche\b",
+        r"\bgo[- ]to[- ]market\b|\bmarket entry\b",
+    ),
+    (
+        "stratégie commerciale",
+        r"\bstrategie commerciale\b",
+        r"\b(?:commercial|sales) strateg\w*",
+    ),
 )
 _FORBIDDEN_COMPILED = tuple(
     (label, re.compile(fr), re.compile(en)) for label, fr, en in _FORBIDDEN
@@ -118,7 +168,9 @@ _NUMBERED_SOURCE = re.compile(
 )
 
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)(\s*(?:%|€|\$))?")
-_PROPER_NOUN = re.compile(r"(?<=[a-zàâçéèêëîïôûùüÿ,;:] )([A-ZÀÂÇÉÈÊËÎÏÔÛÙÜ][\wÀ-ÿ'-]{2,})")
+_PROPER_NOUN = re.compile(
+    r"(?<=[a-zàâçéèêëîïôûùüÿ,;:] )([A-ZÀÂÇÉÈÊËÎÏÔÛÙÜ][\wÀ-ÿ'-]{2,})"
+)
 
 
 @dataclass
@@ -264,7 +316,9 @@ def french_numbers(text: str) -> List[Tuple[int, bool]]:
                 digits += str(_UNITS[tokens[j]])
                 j += 1
             if digits and j < len(tokens) and tokens[j] in _MULTIPLIERS:
-                scaled = Decimal(f"{total + current}.{digits}") * _MULTIPLIERS[tokens[j]]
+                scaled = (
+                    Decimal(f"{total + current}.{digits}") * _MULTIPLIERS[tokens[j]]
+                )
                 found.append((int(scaled), False))
                 i = j + 1
                 continue
@@ -277,7 +331,9 @@ def french_numbers(text: str) -> List[Tuple[int, bool]]:
 
 def extract_corpus(content: Any) -> str:
     """Texte des sources, après le séparateur ; lève ValueError s'il est introuvable."""
-    text = "\n".join(content) if isinstance(content, (list, tuple)) else str(content or "")
+    text = (
+        "\n".join(content) if isinstance(content, (list, tuple)) else str(content or "")
+    )
     if SOURCES_DELIMITER not in text:
         raise ValueError(
             "Contrôle de contenu impossible : le corpus des sources est introuvable "
@@ -288,9 +344,12 @@ def extract_corpus(content: Any) -> str:
 
 def allowed_dates(content: Any) -> str:
     """Nombres d'une ligne « Date de la veille : … » (la date d'ouverture est légitime)."""
-    text = "\n".join(content) if isinstance(content, (list, tuple)) else str(content or "")
+    text = (
+        "\n".join(content) if isinstance(content, (list, tuple)) else str(content or "")
+    )
     lines = [
-        line for line in text.splitlines()
+        line
+        for line in text.splitlines()
         if line.strip().lower().startswith(DATE_LINE_PREFIX)
     ]
     return " ".join(lines)
@@ -347,7 +406,10 @@ def check_transcript(
         spoke = {_fold(s) for s in speakers[:intro_lines]}
         for name in speaker_names:
             folded = _fold(name)
-            if not re.search(rf"\b{re.escape(folded)}\b", opening) or folded not in spoke:
+            if (
+                not re.search(rf"\b{re.escape(folded)}\b", opening)
+                or folded not in spoke
+            ):
                 report.violations.append(
                     GuardIssue(
                         0,
@@ -381,7 +443,10 @@ def check_transcript(
                 amount = Decimal(token)
             except ArithmeticError:
                 continue
-            allowed_numbers |= {str(int(amount)), str(int(amount.to_integral_value(rounding="ROUND_HALF_UP")))}
+            allowed_numbers |= {
+                str(int(amount)),
+                str(int(amount.to_integral_value(rounding="ROUND_HALF_UP"))),
+            }
     corpus_words = set(re.findall(r"[\w'-]+", corpus_folded))
     names = {_fold(n) for n in speaker_names}
 
@@ -395,7 +460,9 @@ def check_transcript(
                 and not english.search(corpus_folded)
             ):
                 report.violations.append(
-                    GuardIssue(index, "terme_commercial", f"« {label} » absent des sources")
+                    GuardIssue(
+                        index, "terme_commercial", f"« {label} » absent des sources"
+                    )
                 )
 
         numbered = _NUMBERED_SOURCE.search(folded)
@@ -424,12 +491,16 @@ def check_transcript(
             if value >= 100 or percent:
                 report.violations.append(
                     GuardIssue(
-                        index, "nombre_absent", f"{token} (écrit en lettres) absent des sources"
+                        index,
+                        "nombre_absent",
+                        f"{token} (écrit en lettres) absent des sources",
                     )
                 )
             elif value >= 10:
                 report.warnings.append(
-                    GuardIssue(index, "nombre_en_lettres_absent", f"{token} absent des sources")
+                    GuardIssue(
+                        index, "nombre_en_lettres_absent", f"{token} absent des sources"
+                    )
                 )
 
         for noun in _PROPER_NOUN.findall(line):
@@ -462,7 +533,9 @@ async def content_guard_node(
         speakers=speakers_in_order,
         intro_lines=INTRO_LINES,
         min_share=MIN_SPEAKER_SHARE,
-        closing_speaker=speakers_in_order[0] if HOST_CLOSES and speakers_in_order else None,
+        closing_speaker=speakers_in_order[0]
+        if HOST_CLOSES and speakers_in_order
+        else None,
         panel_host=names[0] if len(names) >= PANEL_MIN_SPEAKERS else None,
         guest_bonus=PANEL_GUEST_BONUS,
         host_min_share=HOST_PANEL_MIN_SHARE,

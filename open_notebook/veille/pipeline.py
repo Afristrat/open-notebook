@@ -69,7 +69,9 @@ JOB_FINISHED = ("completed", "failed", "canceled")
 
 def max_attempts() -> int:
     try:
-        return max(1, int(os.getenv("SAQR_VEILLE_MAX_ATTEMPTS", str(DEFAULT_MAX_ATTEMPTS))))
+        return max(
+            1, int(os.getenv("SAQR_VEILLE_MAX_ATTEMPTS", str(DEFAULT_MAX_ATTEMPTS)))
+        )
     except ValueError:
         return DEFAULT_MAX_ATTEMPTS
 
@@ -77,7 +79,9 @@ def max_attempts() -> int:
 def sanitize(message: Optional[str]) -> str:
     """Une phrase actionnable, sans chemin interne."""
     first = (message or "").strip().splitlines()[0] if message else ""
-    cleaned = " ".join(part for part in first.replace("\\", "/").split() if "/" not in part)
+    cleaned = " ".join(
+        part for part in first.replace("\\", "/").split() if "/" not in part
+    )
     return (cleaned or "Échec de la production du podcast.")[:300]
 
 
@@ -136,9 +140,12 @@ async def _linked_arxiv_pdf(source: Dict[str, Any]) -> Optional[str]:
     for wait in ARXIV_WAITS:  # l'API d'arXiv est lente et limite le débit (ReadTimeout à 20 s, 429, 503 le 02/10)
         await asyncio.sleep(wait)
         try:
-            async with httpx.AsyncClient(timeout=ARXIV_TIMEOUT_SECONDS, follow_redirects=True) as client:
+            async with httpx.AsyncClient(
+                timeout=ARXIV_TIMEOUT_SECONDS, follow_redirects=True
+            ) as client:
                 response = await client.get(
-                    ARXIV_API, params={"search_query": query, "max_results": 10},
+                    ARXIV_API,
+                    params={"search_query": query, "max_results": 10},
                     headers={"User-Agent": "Mozilla/5.0"},
                 )
                 response.raise_for_status()
@@ -172,25 +179,42 @@ async def read_sources(sources: List[Dict[str, Any]]) -> List[ingest.SourceResul
     results: List[ingest.SourceResult] = []
     seen: Dict[int, str] = {}
     for source, (title, text, article) in zip(sources, reads):
-        text, from_saqr_title = ingest.post_text(source, text)  # post X: repli sur le texte relevé par Saqr
-        text, from_provided = ingest.prefer_provided(source, text)  # texte_complet de Saqr s'il est plus complet
-        statut, detail = ingest.classify(source, title, text, seen, provided=from_provided)
+        text, from_saqr_title = ingest.post_text(
+            source, text
+        )  # post X: repli sur le texte relevé par Saqr
+        text, from_provided = ingest.prefer_provided(
+            source, text
+        )  # texte_complet de Saqr s'il est plus complet
+        statut, detail = ingest.classify(
+            source, title, text, seen, provided=from_provided
+        )
         if statut in ingest.ALTERED and not from_provided:
             # Page illisible, paywall ou divergente: la source n'est inexploitable que si le texte_complet
             # de Saqr ne l'est pas non plus (demande de Saqr, 03/10).
             fallback = ingest.provided_text(source)
             if fallback:
-                retry_statut, retry_detail = ingest.classify(source, title, fallback, seen, provided=True)
+                retry_statut, retry_detail = ingest.classify(
+                    source, title, fallback, seen, provided=True
+                )
                 if retry_statut in (ingest.INGEREE, ingest.REPRISE):
-                    text, from_provided, statut, detail = fallback, True, retry_statut, retry_detail
+                    text, from_provided, statut, detail = (
+                        fallback,
+                        True,
+                        retry_statut,
+                        retry_detail,
+                    )
         if from_provided and statut == ingest.INGEREE:
             detail += " (texte_complet fourni par Saqr)"
         elif from_saqr_title and statut == ingest.INGEREE:
             detail += " (texte du post relevé par Saqr, X ne se lit pas)"
         number = int(source.get("numero") or len(results) + 1)
         result = ingest.SourceResult(
-            n=number, statut=statut, detail=detail, titre=str(source.get("titre") or ""),
-            editeur=str(source.get("plateforme") or ""), meta=str(source.get("meta") or ""),
+            n=number,
+            statut=statut,
+            detail=detail,
+            titre=str(source.get("titre") or ""),
+            editeur=str(source.get("plateforme") or ""),
+            meta=str(source.get("meta") or ""),
             url=ingest.source_urls(source)[0],
         )
         if statut in (ingest.INGEREE, ingest.REPRISE):
@@ -223,7 +247,9 @@ def unique_titles(results: List[ingest.SourceResult]) -> List[str]:
     return titles
 
 
-async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[str, List[Tuple[str, str]]]:
+async def store_notebook(
+    ref: str, results: List[ingest.SourceResult]
+) -> Tuple[str, List[Tuple[str, str]]]:
     """Enregistre les sources INTÉGRALES de la production dans son notebook, puis les en relit.
 
     Le podcast puise ses informations dans ce notebook (exigence d'Amine, 03/10): un notebook par
@@ -231,18 +257,28 @@ async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[
     Idempotent: un rejeu réutilise le notebook et met à jour les sources de même titre.
     """
     name = f"Veille Saqr {ingest.date_of_ref(ref)}"
-    found = await repo_query("SELECT id FROM notebook WHERE name = $name", {"name": name})
+    found = await repo_query(
+        "SELECT id FROM notebook WHERE name = $name", {"name": name}
+    )
     if found:
         notebook = await Notebook.get(str(found[0]["id"]))
     else:
-        notebook = Notebook(name=name, description=f"Sources intégrales de la veille Saqr du {ingest.french_date(ref)}.")
+        notebook = Notebook(
+            name=name,
+            description=f"Sources intégrales de la veille Saqr du {ingest.french_date(ref)}.",
+        )
         await notebook.save()
     existing = {s.title: s for s in await notebook.get_sources(include_full_text=True)}
     titles = unique_titles(results)
     for result, title in zip(results, titles):
         source = existing.get(title)
         if source is None:
-            source = Source(title=title, full_text=result.texte, topics=[], asset=Asset(url=result.url or None))
+            source = Source(
+                title=title,
+                full_text=result.texte,
+                topics=[],
+                asset=Asset(url=result.url or None),
+            )
             await source.save()
             await source.add_to_notebook(str(notebook.id))
         elif source.full_text != result.texte:
@@ -251,13 +287,22 @@ async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[
         else:
             continue
         try:
-            await source.vectorize()  # recherche dans le notebook; le podcast, lui, lit le texte intégral
+            await (
+                source.vectorize()
+            )  # recherche dans le notebook; le podcast, lui, lit le texte intégral
         except Exception as exc:  # noqa: BLE001 - l'indexation est un confort, jamais un motif d'échec
-            logger.warning(f"[veille] indexation de « {title[:40]} » impossible ({type(exc).__name__})")
-    stored = {s.title: s.full_text or "" for s in await notebook.get_sources(include_full_text=True)}
+            logger.warning(
+                f"[veille] indexation de « {title[:40]} » impossible ({type(exc).__name__})"
+            )
+    stored = {
+        s.title: s.full_text or ""
+        for s in await notebook.get_sources(include_full_text=True)
+    }
     missing = [t for t in titles if not stored.get(t)]
     if missing:
-        raise ProductionFailed(f"{len(missing)} source(s) absente(s) du notebook après enregistrement.")
+        raise ProductionFailed(
+            f"{len(missing)} source(s) absente(s) du notebook après enregistrement."
+        )
     return str(notebook.id), [(t, stored[t]) for t in titles]
 
 
@@ -265,7 +310,10 @@ async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[
 
 
 async def _submit(
-    name: str, content: str, resume_episode_id: Optional[str], briefing_suffix: Optional[str] = None
+    name: str,
+    content: str,
+    resume_episode_id: Optional[str],
+    briefing_suffix: Optional[str] = None,
 ) -> str:
     return await PodcastService.submit_generation_job(
         episode_profile_name=EPISODE_PROFILE,
@@ -282,7 +330,7 @@ def refusal_feedback(error: str) -> str:
 
     Constaté le 03/10 : relancer à l'identique ne change rien (Hanae restait à 14-18 % sur 10 essais).
     """
-    reasons = error[len(GUARD_PREFIX):].lstrip(" :")
+    reasons = error[len(GUARD_PREFIX) :].lstrip(" :")
     return (
         "La transcription précédente a été REFUSÉE par le contrôle de contenu. Écris une nouvelle "
         f"transcription qui corrige exactement ces points : {reasons}. Quand une part de parole est en "
@@ -295,13 +343,18 @@ def refusal_feedback(error: str) -> str:
 async def _wait(job: str, run: Dict[str, Any]) -> Dict[str, Any]:
     while True:
         if time_left(run) <= 0 and (
-            time_left(run) <= -VOICE_GRACE_SECONDS or not _is_resumable(await _episode_of(job))
+            time_left(run) <= -VOICE_GRACE_SECONDS
+            or not _is_resumable(await _episode_of(job))
         ):
-            raise ProductionFailed("Délai de production dépassé pendant la génération de l'épisode.")
+            raise ProductionFailed(
+                "Délai de production dépassé pendant la génération de l'épisode."
+            )
         try:
             status = await PodcastService.get_job_status(job)
         except Exception as exc:  # noqa: BLE001 - une lecture ratée se retente au prochain tour
-            logger.info(f"[veille] statut du job illisible ({type(exc).__name__}), nouvel essai")
+            logger.info(
+                f"[veille] statut du job illisible ({type(exc).__name__}), nouvel essai"
+            )
             status = {}
         if status.get("status") in ("completed", "failed", "canceled"):
             return status
@@ -310,7 +363,8 @@ async def _wait(job: str, run: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _episode_of(job: str) -> Optional[Dict[str, Any]]:
     rows = await repo_query(
-        "SELECT * FROM episode WHERE command = $job LIMIT 1", {"job": ensure_record_id(job)}
+        "SELECT * FROM episode WHERE command = $job LIMIT 1",
+        {"job": ensure_record_id(job)},
     )
     return rows[0] if rows else None
 
@@ -356,7 +410,11 @@ async def voice_in_progress(run: Dict[str, Any]) -> bool:
     if time_left(run) <= -VOICE_GRACE_SECONDS:
         return False
     for episode in await episodes_of_run(run):
-        if episode.get("audio_file") or not episode.get("command") or not _is_resumable(episode):
+        if (
+            episode.get("audio_file")
+            or not episode.get("command")
+            or not _is_resumable(episode)
+        ):
             continue
         status = await _job_status(str(episode["command"]))
         if status and status not in JOB_FINISHED:
@@ -380,18 +438,27 @@ async def _finalize(run: Dict[str, Any], job: str) -> None:
     """Lit le fichier produit; ne marque « pret » qu'après vérification du format et de la durée."""
     episode = await _episode_of(job)
     if not episode or not episode.get("audio_file"):
-        raise ProductionFailed("L'épisode est terminé mais son fichier audio est introuvable.")
+        raise ProductionFailed(
+            "L'épisode est terminé mais son fichier audio est introuvable."
+        )
     path = resolve_contained_audio_path(episode["audio_file"])
     if path is None:
-        raise ProductionFailed("Le fichier audio de l'épisode est hors du dossier autorisé.")
+        raise ProductionFailed(
+            "Le fichier audio de l'épisode est hors du dossier autorisé."
+        )
     try:
         info = await probe_mp3(path)
     except AudioInvalid as exc:
         raise ProductionFailed(f"Fichier audio refusé : {exc}") from exc
     episode_id = str(episode["id"])
     await runs.update_run(
-        str(run["id"]), statut="pret", etape=None, erreur=None, episode=episode_id,
-        audio_url=audio_url_for(episode_id), duree_s=info["duration_s"],
+        str(run["id"]),
+        statut="pret",
+        etape=None,
+        erreur=None,
+        episode=episode_id,
+        audio_url=audio_url_for(episode_id),
+        duree_s=info["duration_s"],
     )
 
 
@@ -404,8 +471,12 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
     limit = max_attempts()
     for attempt in range(1, limit + 1):
         if time_left(run) <= 0:
-            raise ProductionFailed("Délai de production dépassé avant une nouvelle tentative.")
-        await runs.update_run(run_id, tentatives=attempt, etape=f"generation {attempt}/{limit}")
+            raise ProductionFailed(
+                "Délai de production dépassé avant une nouvelle tentative."
+            )
+        await runs.update_run(
+            run_id, tentatives=attempt, etape=f"generation {attempt}/{limit}"
+        )
         job = await (
             _submit(name, content, resume_episode_id, briefing_suffix=feedback)
             if feedback
@@ -417,13 +488,23 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
             await _finalize(run, job)
             return
         last_error = status.get("error_message") or ""
-        logger.info(f"[veille] {run['ref']} essai {attempt}/{limit} échoué : {sanitize(last_error)}")
+        logger.info(
+            f"[veille] {run['ref']} essai {attempt}/{limit} échoué : {sanitize(last_error)}"
+        )
         if last_error.startswith(GUARD_PREFIX):
-            resume_episode_id = None  # le texte était mauvais: on repart d'une nouvelle transcription
-            feedback = refusal_feedback(sanitize(last_error))  # ... qui corrige le motif du refus
+            resume_episode_id = (
+                None  # le texte était mauvais: on repart d'une nouvelle transcription
+            )
+            feedback = refusal_feedback(
+                sanitize(last_error)
+            )  # ... qui corrige le motif du refus
             continue
-        episode = await _episode_of(job)  # panne de voix: reprendre l'épisode au clip près
-        resume_episode_id = str(episode["id"]) if episode and _is_resumable(episode) else None
+        episode = await _episode_of(
+            job
+        )  # panne de voix: reprendre l'épisode au clip près
+        resume_episode_id = (
+            str(episode["id"]) if episode and _is_resumable(episode) else None
+        )
     raise ProductionFailed(f"Échec après {limit} essais : {sanitize(last_error)}")
 
 
@@ -447,25 +528,33 @@ async def produce(run: Dict[str, Any]) -> None:
     piece = await _fetch_with_retries(run["ref"])
     published = piece.get("content_hash") or piece.get("revision")
     if published and str(published) != str(run["revision"]):
-        raise ProductionFailed("La veille publiée a changé depuis la demande (révision différente).")
+        raise ProductionFailed(
+            "La veille publiée a changé depuis la demande (révision différente)."
+        )
 
     markdown = piece["contenu"]
     await runs.update_run(run_id, etape="sources")
     results = await read_sources(piece["sources"])
     rate = ingest.alteration_rate(results)
-    usable = [r for r in results if r.statut in (ingest.INGEREE, ingest.REPRISE) and r.texte]
+    usable = [
+        r for r in results if r.statut in (ingest.INGEREE, ingest.REPRISE) and r.texte
+    ]
     try:
         notebook_id, stored = await store_notebook(run["ref"], usable)
     except ProductionFailed:
         raise
     except Exception as exc:  # noqa: BLE001 - sans notebook, pas de podcast: le notebook est obligatoire
-        raise ProductionFailed(f"Notebook de la production impossible : {sanitize(str(exc))}") from exc
+        raise ProductionFailed(
+            f"Notebook de la production impossible : {sanitize(str(exc))}"
+        ) from exc
     await runs.update_run(
         run_id,
         rapport={
             "notebook": notebook_id,
             "sources": len(results),
-            "exploitables": sum(r.statut in (ingest.INGEREE, ingest.REPRISE) for r in results),
+            "exploitables": sum(
+                r.statut in (ingest.INGEREE, ingest.REPRISE) for r in results
+            ),
             "taux_alteration": round(rate, 3),
             "detail": [r.report() for r in results],
         },
@@ -483,7 +572,9 @@ async def fail(run_id: str, message: str) -> None:
     await runs.update_run(run_id, statut="echec", etape=None, erreur=sanitize(message))
 
 
-async def deliver_callback(run: Dict[str, Any], *, attempts: int = len(CALLBACK_WAITS)) -> bool:
+async def deliver_callback(
+    run: Dict[str, Any], *, attempts: int = len(CALLBACK_WAITS)
+) -> bool:
     """Annonce l'issue à Saqr. Un échec de livraison laisse le rappel « a_envoyer » (rejoué par reconcile)."""
     if run.get("rappel_statut") == "envoye":
         return True
@@ -495,12 +586,18 @@ async def deliver_callback(run: Dict[str, Any], *, attempts: int = len(CALLBACK_
         try:
             await post_callback(payload)
         except SaqrRejected as exc:
-            logger.error(f"[veille] rappel refusé par Saqr pour {run['ref']} : {sanitize(str(exc))}")
-            await runs.update_run(run_id, rappel_statut="abandonne", rappel_tentatives=done)
+            logger.error(
+                f"[veille] rappel refusé par Saqr pour {run['ref']} : {sanitize(str(exc))}"
+            )
+            await runs.update_run(
+                run_id, rappel_statut="abandonne", rappel_tentatives=done
+            )
             return False
         except SaqrUnavailable:
             if done >= MAX_CALLBACK_ATTEMPTS_TOTAL:
-                await runs.update_run(run_id, rappel_statut="abandonne", rappel_tentatives=done)
+                await runs.update_run(
+                    run_id, rappel_statut="abandonne", rappel_tentatives=done
+                )
                 return False
             await runs.update_run(run_id, rappel_tentatives=done)
             if index < attempts - 1:

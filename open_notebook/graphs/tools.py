@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 
 # todo: turn this into a system prompt variable

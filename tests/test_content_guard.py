@@ -29,8 +29,12 @@ class TestCheckTranscript:
         assert report.violations == []
 
     def test_invented_commercial_term_is_a_violation(self):
-        report = cg.check_transcript(["Ce produit se vend en abonnement annuel."], SOURCES)
-        assert ("terme_commercial", "« abonnement » absent des sources") in kinds(report)
+        report = cg.check_transcript(
+            ["Ce produit se vend en abonnement annuel."], SOURCES
+        )
+        assert ("terme_commercial", "« abonnement » absent des sources") in kinds(
+            report
+        )
 
     def test_commercial_term_present_in_sources_is_allowed(self):
         report = cg.check_transcript(["Le code est sous licence Apache."], SOURCES)
@@ -90,7 +94,8 @@ class TestEnglishSources:
 
     def test_k_suffix_matches_the_full_number(self):
         report = cg.check_transcript(
-            ["Un benchmark de 87 000 échantillons."], "a benchmark comprising 87k real audio"
+            ["Un benchmark de 87 000 échantillons."],
+            "a benchmark comprising 87k real audio",
         )
         assert report.violations == []
 
@@ -100,14 +105,18 @@ class TestEnglishSources:
         assert report.violations == []
 
     def test_a_different_number_is_still_a_violation(self):
-        report = cg.check_transcript(["Environ 3 000 dossiers."], "about 2,000 refugee cases")
+        report = cg.check_transcript(
+            ["Environ 3 000 dossiers."], "about 2,000 refugee cases"
+        )
         assert ("nombre_absent", "3000 absent des sources") in kinds(report)
 
     def test_other_commercial_terms_stay_forbidden_when_only_license_is_sourced(self):
         report = cg.check_transcript(
             ["Ils vendent un abonnement annuel."], "an MIT Licensed platform"
         )
-        assert ("terme_commercial", "« abonnement » absent des sources") in kinds(report)
+        assert ("terme_commercial", "« abonnement » absent des sources") in kinds(
+            report
+        )
 
 
 class TestExtractCorpus:
@@ -134,7 +143,9 @@ def make_state(tmp_path, briefing, lines, content):
 class TestLength:
     def test_transcript_in_range_is_accepted(self):
         lines = ["mot " * 100] * 15
-        assert cg.check_transcript(lines, "mot", word_range=(1100, 2000)).violations == []
+        assert (
+            cg.check_transcript(lines, "mot", word_range=(1100, 2000)).violations == []
+        )
 
     def test_too_long_transcript_is_a_violation(self):
         lines = ["mot " * 100] * 43
@@ -150,7 +161,9 @@ class TestLength:
         assert cg.check_transcript(["mot " * 5000], "mot").violations == []
 
     @pytest.mark.asyncio
-    async def test_node_refuses_an_over_long_transcript_before_any_voice(self, tmp_path):
+    async def test_node_refuses_an_over_long_transcript_before_any_voice(
+        self, tmp_path
+    ):
         content = f"veille\n{cg.SOURCES_DELIMITER}\nmot"
         state = {
             "briefing": cg.MARKER,
@@ -168,7 +181,10 @@ class TestScales:
     CORPUS = "funding of up to 150,000 USD, equivalent to about 3 billion VND; 2 million users"
 
     def test_billion_in_english_matches_milliards_in_french(self):
-        for line in ("Plafonné à 3 milliards de dongs.", "Plafonné à trois milliards de dongs."):
+        for line in (
+            "Plafonné à 3 milliards de dongs.",
+            "Plafonné à trois milliards de dongs.",
+        ):
             assert cg.check_transcript([line], self.CORPUS).violations == [], line
 
     def test_million_matches_digits_and_words(self):
@@ -178,8 +194,11 @@ class TestScales:
     def test_b_and_m_suffixes_glued_to_a_digit_are_scales(self):
         # Régression du 02/10 : « Qwen3-VL-4B » (source) vs « 4 milliards de paramètres » (podcast).
         corpus = "a judge, Qwen3-VL-4B, and a 7M model"
-        for line in ("Un juge de 4 milliards de paramètres.", "Un juge de quatre milliards de paramètres.",
-                     "Un modèle de 7 millions de paramètres."):
+        for line in (
+            "Un juge de 4 milliards de paramètres.",
+            "Un juge de quatre milliards de paramètres.",
+            "Un modèle de 7 millions de paramètres.",
+        ):
             assert cg.check_transcript([line], corpus).violations == [], line
         report = cg.check_transcript(["Un juge de 7 milliards de paramètres."], corpus)
         assert any(v.kind == "nombre_absent" for v in report.violations)
@@ -191,7 +210,9 @@ class TestScales:
         assert cg.french_numbers("pour deux mille dossiers") == [(2000, False)]
 
     def test_another_scale_value_is_still_a_violation(self):
-        report = cg.check_transcript(["Plafonné à cinq milliards de dongs."], self.CORPUS)
+        report = cg.check_transcript(
+            ["Plafonné à cinq milliards de dongs."], self.CORPUS
+        )
         assert any(v.kind == "nombre_absent" for v in report.violations)
 
 
@@ -201,24 +222,43 @@ class TestSpelledNumbers:
         assert cg.french_numbers("cent cinquante mille dollars") == [(150000, False)]
         assert cg.french_numbers("quatre-vingt-seize") == [(96, False)]
         assert cg.french_numbers("deux mille vingt-six") == [(2026, False)]
-        assert cg.french_numbers("quatre-vingt-sept mille échantillons") == [(87000, False)]
-        assert cg.french_numbers("soixante et onze et vingt et un") == [(71, False), (21, False)]
+        assert cg.french_numbers("quatre-vingt-sept mille échantillons") == [
+            (87000, False)
+        ]
+        assert cg.french_numbers("soixante et onze et vingt et un") == [
+            (71, False),
+            (21, False),
+        ]
         assert cg.french_numbers("vingt pour cent") == [(20, True)]
 
     def test_spelled_decimal_with_a_scale_is_one_number(self):
         # Régression du 02/10 : « sept virgule cinq milliards » (7,5 milliards) comptait « cinq milliards ».
-        assert cg.french_numbers("sept virgule cinq milliards de lignes") == [(7500000000, False)]
+        assert cg.french_numbers("sept virgule cinq milliards de lignes") == [
+            (7500000000, False)
+        ]
         assert cg.french_numbers("deux virgule cinq millions") == [(2500000, False)]
         assert cg.french_numbers("deux virgule deux points") == [(2, False), (2, False)]
         corpus = "a warehouse of 235 tables and 7.5 billion rows"
-        assert cg.check_transcript(["Un entrepôt de sept virgule cinq milliards de lignes."], corpus).violations == []
-        report = cg.check_transcript(["Un entrepôt de cinq milliards de lignes."], corpus)
+        assert (
+            cg.check_transcript(
+                ["Un entrepôt de sept virgule cinq milliards de lignes."], corpus
+            ).violations
+            == []
+        )
+        report = cg.check_transcript(
+            ["Un entrepôt de cinq milliards de lignes."], corpus
+        )
         assert any(v.kind == "nombre_absent" for v in report.violations)
 
     def test_tarifs_api_is_backed_by_api_list_equivalent_rates_only(self):
         # Régression du 02/10 : « tarifs API » (Saqr) vs « API list-equivalent rates » (source).
         corpus = "a $777.72 cost at September 1, 2026 API list-equivalent rates"
-        assert cg.check_transcript(["Soit environ 777,72 dollars aux tarifs API."], corpus).violations == []
+        assert (
+            cg.check_transcript(
+                ["Soit environ 777,72 dollars aux tarifs API."], corpus
+            ).violations
+            == []
+        )
         report = cg.check_transcript(["Les tarifs changent."], "the error rate dropped")
         assert any(v.kind == "terme_commercial" for v in report.violations)
 
@@ -231,18 +271,32 @@ class TestSpelledNumbers:
 
     def test_spelled_number_present_in_the_sources_is_accepted(self):
         corpus = "found more than 4,000 agents; about 2,000 cases; 87k audio samples"
-        lines = ["Plus de quatre mille agents.", "Environ deux mille dossiers.",
-                 "Quatre-vingt-sept mille échantillons."]
+        lines = [
+            "Plus de quatre mille agents.",
+            "Environ deux mille dossiers.",
+            "Quatre-vingt-sept mille échantillons.",
+        ]
         assert cg.check_transcript(lines, corpus).violations == []
 
     def test_spelled_number_absent_from_the_sources_is_a_violation(self):
-        report = cg.check_transcript(["Plus de quatre mille agents."], "about 2,000 cases")
-        assert ("nombre_absent", "4000 (écrit en lettres) absent des sources") in kinds(report)
+        report = cg.check_transcript(
+            ["Plus de quatre mille agents."], "about 2,000 cases"
+        )
+        assert ("nombre_absent", "4000 (écrit en lettres) absent des sources") in kinds(
+            report
+        )
 
     def test_spelled_percentage_is_checked(self):
-        report = cg.check_transcript(["Vingt pour cent des agents."], "13 % of organizations")
+        report = cg.check_transcript(
+            ["Vingt pour cent des agents."], "13 % of organizations"
+        )
         assert any(v.kind == "nombre_absent" for v in report.violations)
-        assert cg.check_transcript(["Vingt pour cent des agents."], "20 % of agents").violations == []
+        assert (
+            cg.check_transcript(
+                ["Vingt pour cent des agents."], "20 % of agents"
+            ).violations
+            == []
+        )
 
     def test_small_conversational_numbers_are_only_a_warning(self):
         report = cg.check_transcript(["Prenez dix minutes aujourd'hui."], "texte")
@@ -251,7 +305,9 @@ class TestSpelledNumbers:
 
     def test_spelled_year_matches_the_allowed_date(self):
         report = cg.check_transcript(
-            ["Nous sommes en deux mille vingt-six."], "texte", extra_allowed="Date de la veille : 30 septembre 2026"
+            ["Nous sommes en deux mille vingt-six."],
+            "texte",
+            extra_allowed="Date de la veille : 30 septembre 2026",
         )
         assert report.violations == []
 
@@ -261,8 +317,11 @@ class TestSpeakerShare:
 
     def run(self, speakers):
         return cg.check_transcript(
-            ["texte"] * len(speakers), "texte", speaker_names=self.NAMES,
-            speakers=speakers, min_share=0.22,
+            ["texte"] * len(speakers),
+            "texte",
+            speaker_names=self.NAMES,
+            speakers=speakers,
+            min_share=0.22,
         )
 
     def test_balanced_conversation_is_accepted(self):
@@ -272,11 +331,16 @@ class TestSpeakerShare:
         speakers = ["Rim"] * 33 + ["Khalid"] * 31 + ["Tariq"] * 16
         report = self.run(speakers)
         assert [v.kind for v in report.violations] == ["part_intervenant"]
-        assert report.violations[0].detail.startswith("Tariq ne dit que 16 réplique(s) sur 80 (20%)")
+        assert report.violations[0].detail.startswith(
+            "Tariq ne dit que 16 réplique(s) sur 80 (20%)"
+        )
 
     def test_the_share_check_is_off_without_a_minimum(self):
         report = cg.check_transcript(
-            ["texte"] * 3, "texte", speaker_names=self.NAMES, speakers=["Rim", "Rim", "Rim"]
+            ["texte"] * 3,
+            "texte",
+            speaker_names=self.NAMES,
+            speakers=["Rim", "Rim", "Rim"],
         )
         assert report.violations == []
 
@@ -318,7 +382,10 @@ class TestOpening:
         assert self.run(lines, ["Rim", "Khalid", "Tariq"]).violations == []
 
     def test_opening_that_dives_into_the_facts_is_refused(self):
-        lines = ["Un essai randomisé a été mené en Suisse.", "Les agents ignoraient leur bras."]
+        lines = [
+            "Un essai randomisé a été mené en Suisse.",
+            "Les agents ignoraient leur bras.",
+        ]
         report = self.run(lines, ["Rim", "Khalid"])
         assert [v.kind for v in report.violations] == ["presentation_absente"] * 3
 
@@ -328,7 +395,12 @@ class TestOpening:
         assert [v.detail.split(" ")[0] for v in report.violations] == ["Tariq"]
 
     def test_the_opening_check_is_off_without_intro_lines(self):
-        assert cg.check_transcript(["Direct aux faits."], "texte", speaker_names=["Rim"]).violations == []
+        assert (
+            cg.check_transcript(
+                ["Direct aux faits."], "texte", speaker_names=["Rim"]
+            ).violations
+            == []
+        )
 
 
 class TestGuardNode:
@@ -342,7 +414,9 @@ class TestGuardNode:
 
     @pytest.mark.asyncio
     async def test_without_marker_the_guard_is_inactive(self, tmp_path):
-        state = make_state(tmp_path, "briefing sans marqueur", ["abonnement à 99 euros"], "x")
+        state = make_state(
+            tmp_path, "briefing sans marqueur", ["abonnement à 99 euros"], "x"
+        )
 
         assert await cg.content_guard_node(state) == {}
         assert not (tmp_path / "guard_report.json").exists()
@@ -355,24 +429,33 @@ class TestGuardNode:
         )
 
         assert await cg.content_guard_node(state) == {}
-        report = json.loads((tmp_path / "guard_report.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (tmp_path / "guard_report.json").read_text(encoding="utf-8")
+        )
         assert report["violations"] == []
 
     @pytest.mark.asyncio
     async def test_violation_raises_before_any_voice(self, tmp_path):
         content = f"veille avec 87 %\n{cg.SOURCES_DELIMITER}\n{SOURCES}"
         state = make_state(
-            tmp_path, f"{cg.MARKER}\nbriefing", ["Cela représente 87 % des cas."], content
+            tmp_path,
+            f"{cg.MARKER}\nbriefing",
+            ["Cela représente 87 % des cas."],
+            content,
         )
 
         with pytest.raises(ValueError, match="aucune voix générée"):
             await cg.content_guard_node(state)
-        report = json.loads((tmp_path / "guard_report.json").read_text(encoding="utf-8"))
+        report = json.loads(
+            (tmp_path / "guard_report.json").read_text(encoding="utf-8")
+        )
         assert report["violations"][0]["type"] == "nombre_absent"
 
     @pytest.mark.asyncio
     async def test_marker_without_sources_fails_closed(self, tmp_path):
-        state = make_state(tmp_path, cg.MARKER, ["Une réplique."], "contenu sans séparateur")
+        state = make_state(
+            tmp_path, cg.MARKER, ["Une réplique."], "contenu sans séparateur"
+        )
 
         with pytest.raises(ValueError, match="corpus des sources"):
             await cg.content_guard_node(state)
@@ -385,22 +468,41 @@ class TestRegressionOfTheDay03:
 
     def test_a_monologue_of_the_size_the_model_writes_is_accepted(self):
         lines = ["mot " * 100] * 22
-        assert cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)).violations == []
+        assert (
+            cg.check_transcript(
+                lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)
+            ).violations
+            == []
+        )
 
     def test_a_far_too_long_transcript_is_still_refused(self):
-        lines = ["mot " * 100] * 34  # 3 400 mots : au-dessus du plafond relevé à 3 200 (04/10/2026)
-        report = cg.check_transcript(lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS))
+        lines = [
+            "mot " * 100
+        ] * 34  # 3 400 mots : au-dessus du plafond relevé à 3 200 (04/10/2026)
+        report = cg.check_transcript(
+            lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)
+        )
         assert [v.kind for v in report.violations] == ["duree_hors_cible"]
 
     def test_a_source_decimal_said_rounded_in_words_is_accepted(self):
-        for line in ("Il coûte sept cent soixante-dix-sept dollars.", "Il coûte sept cent soixante-dix-huit dollars."):
+        for line in (
+            "Il coûte sept cent soixante-dix-sept dollars.",
+            "Il coûte sept cent soixante-dix-huit dollars.",
+        ):
             assert cg.check_transcript([line], self.CORPUS).violations == []
 
     def test_a_source_decimal_said_rounded_in_digits_is_accepted(self):
-        assert cg.check_transcript(["Il coûte 777 dollars par mois."], self.CORPUS).violations == []
+        assert (
+            cg.check_transcript(
+                ["Il coûte 777 dollars par mois."], self.CORPUS
+            ).violations
+            == []
+        )
 
     def test_an_unrelated_number_is_still_refused(self):
-        report = cg.check_transcript(["Il coûte six cent quatre-vingt-dix dollars."], self.CORPUS)
+        report = cg.check_transcript(
+            ["Il coûte six cent quatre-vingt-dix dollars."], self.CORPUS
+        )
         assert [v.kind for v in report.violations] == ["nombre_absent"]
 
 
@@ -413,7 +515,9 @@ class TestMinimumWordsFollowTheMatter:
         assert round(cg.MAX_WORDS / cg.WORDS_PER_MINUTE) == 20
 
     def test_a_normal_day_requires_the_full_minimum(self):
-        assert cg.min_words_for("x" * 13_456) == cg.MIN_WORDS  # corpus du 04/10 : trois sources, 13 456 caractères
+        assert (
+            cg.min_words_for("x" * 13_456) == cg.MIN_WORDS
+        )  # corpus du 04/10 : trois sources, 13 456 caractères
         assert cg.min_words_for("x" * 170_000) == cg.MIN_WORDS
 
     def test_only_a_tiny_corpus_lowers_the_minimum_and_never_below_the_floor(self):
@@ -430,28 +534,37 @@ class TestMinimumWordsFollowTheMatter:
 class TestNamedSources:
     """Décision d'Amine du 12/10: « source 1, source 2 » est à bannir, une source se nomme."""
 
-    @pytest.mark.parametrize("line", [
-        "La source 1 précise un allongement moyen de 3,45 jours.",
-        "Selon la Source 7, 85 % des puces sont locales.",
-        "Il faut suivre la source 6 et nommer un responsable.",
-        "Les sources 3 et 4 convergent.",
-        "Comme le dit la source n° 11, la proximité compte.",
-        "L'étude MASTIF, en source dix, a testé 4 frameworks.",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "La source 1 précise un allongement moyen de 3,45 jours.",
+            "Selon la Source 7, 85 % des puces sont locales.",
+            "Il faut suivre la source 6 et nommer un responsable.",
+            "Les sources 3 et 4 convergent.",
+            "Comme le dit la source n° 11, la proximité compte.",
+            "L'étude MASTIF, en source dix, a testé 4 frameworks.",
+        ],
+    )
     def test_a_numbered_source_is_refused(self, line):
         report = cg.check_transcript([line], "3,45 85 6 11 4 MASTIF")
         assert [v.kind for v in report.violations] == ["source_numerotee"]
 
-    @pytest.mark.parametrize("line", [
-        "Selon le blog d'OpenAI, le score passe de 23,2 % à 32 %.",
-        "Une source un peu technique l'explique.",
-        "Plusieurs sources confirment ce chiffre.",
-        "C'est notre unique source de revenus, dit l'étude.",
-    ])
+    @pytest.mark.parametrize(
+        "line",
+        [
+            "Selon le blog d'OpenAI, le score passe de 23,2 % à 32 %.",
+            "Une source un peu technique l'explique.",
+            "Plusieurs sources confirment ce chiffre.",
+            "C'est notre unique source de revenus, dit l'étude.",
+        ],
+    )
     def test_a_named_or_general_mention_is_accepted(self, line):
         report = cg.check_transcript([line], SOURCES)
         assert not any(v.kind == "source_numerotee" for v in report.violations)
 
     def test_the_refusal_tells_the_model_what_to_do_instead(self):
         report = cg.check_transcript(["La source 6 est claire."], "6")
-        assert "éditeur" in report.violations[0].detail and "titre" in report.violations[0].detail
+        assert (
+            "éditeur" in report.violations[0].detail
+            and "titre" in report.violations[0].detail
+        )

@@ -40,7 +40,10 @@ def sent(monkeypatch):
 def episode(monkeypatch):
     """Un épisode terminé, créé après la demande; chaque test peut en changer les champs."""
     state = {
-        "id": "episode:abc", "name": NAME, "audio_file": "episodes/abc/audio/abc.mp3", "apres_demande": True,
+        "id": "episode:abc",
+        "name": NAME,
+        "audio_file": "episodes/abc/audio/abc.mp3",
+        "apres_demande": True,
     }
 
     async def fake_episode(episode_id, since):
@@ -53,7 +56,11 @@ def episode(monkeypatch):
 
     monkeypatch.setattr(renvoi, "_episode", fake_episode)
     monkeypatch.setattr(renvoi, "probe_mp3", fake_probe)
-    monkeypatch.setattr(renvoi, "resolve_contained_audio_path", lambda value: Path("/data/podcasts") / value)
+    monkeypatch.setattr(
+        renvoi,
+        "resolve_contained_audio_path",
+        lambda value: Path("/data/podcasts") / value,
+    )
     return state
 
 
@@ -61,36 +68,77 @@ class TestNameToRef:
     def test_a_veille_name_gives_its_ref(self):
         assert renvoi.ref_of_name(NAME) == REF
 
-    @pytest.mark.parametrize("name", [None, "", "Mon podcast", "Veille Saqr 2026-10-11 bis", "veille saqr 2026-10-11"])
+    @pytest.mark.parametrize(
+        "name",
+        [
+            None,
+            "",
+            "Mon podcast",
+            "Veille Saqr 2026-10-11 bis",
+            "veille saqr 2026-10-11",
+        ],
+    )
     def test_any_other_name_gives_nothing(self, name):
         assert renvoi.ref_of_name(name) is None
 
 
 class TestResend:
     @pytest.mark.asyncio
-    async def test_the_episode_is_linked_and_announced_with_the_revision_of_saqrs_request(self, store, sent, episode):
-        store.add(REF, revision="8d27b3ce", statut="echec", erreur="ffmpeg", page_url="https://saqr.ma/blog/x")
+    async def test_the_episode_is_linked_and_announced_with_the_revision_of_saqrs_request(
+        self, store, sent, episode
+    ):
+        store.add(
+            REF,
+            revision="8d27b3ce",
+            statut="echec",
+            erreur="ffmpeg",
+            page_url="https://saqr.ma/blog/x",
+        )
         result = await renvoi.resend("episode:abc")
-        assert sent == [{
-            "ref": REF, "revision": "8d27b3ce", "statut": "pret",
-            "audio_url": "https://diwan.ai-mpower.com/api/podcasts/episodes/episode:abc/audio",
-            "page_url": "https://saqr.ma/blog/x", "duree_s": 701, "erreur": None,
-        }]
+        assert sent == [
+            {
+                "ref": REF,
+                "revision": "8d27b3ce",
+                "statut": "pret",
+                "audio_url": "https://diwan.ai-mpower.com/api/podcasts/episodes/episode:abc/audio",
+                "page_url": "https://saqr.ma/blog/x",
+                "duree_s": 701,
+                "erreur": None,
+            }
+        ]
         row = store.by_ref(REF)
-        assert (row["statut"], row["episode"], row["rappel_statut"]) == ("pret", "episode:abc", "envoye")
+        assert (row["statut"], row["episode"], row["rappel_statut"]) == (
+            "pret",
+            "episode:abc",
+            "envoye",
+        )
         assert "erreur" not in row
-        assert result["rappel"] == "envoye" and result["revision"] == "8d27b3ce" and result["dureeS"] == 701
+        assert (
+            result["rappel"] == "envoye"
+            and result["revision"] == "8d27b3ce"
+            and result["dureeS"] == 701
+        )
 
     @pytest.mark.asyncio
-    async def test_a_new_episode_replaces_the_one_already_announced(self, store, sent, episode):
-        store.add(REF, statut="pret", episode="episode:ancien", audio_url="https://d/ancien", duree_s=900.0,
-                  rappel_statut="envoye")
+    async def test_a_new_episode_replaces_the_one_already_announced(
+        self, store, sent, episode
+    ):
+        store.add(
+            REF,
+            statut="pret",
+            episode="episode:ancien",
+            audio_url="https://d/ancien",
+            duree_s=900.0,
+            rappel_statut="envoye",
+        )
         await renvoi.resend("episode:abc")
         assert len(sent) == 1 and sent[0]["audio_url"].endswith("episode:abc/audio")
         assert store.by_ref(REF)["episode"] == "episode:abc"
 
     @pytest.mark.asyncio
-    async def test_an_episode_that_is_not_a_veille_is_refused_without_any_callback(self, store, sent, episode):
+    async def test_an_episode_that_is_not_a_veille_is_refused_without_any_callback(
+        self, store, sent, episode
+    ):
         store.add(REF, statut="echec")
         episode["name"] = "Mon podcast"
         with pytest.raises(renvoi.RenvoiRefused) as err:
@@ -111,7 +159,9 @@ class TestResend:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("statut", sorted(runs.ACTIVE))
-    async def test_a_production_in_progress_is_never_interrupted(self, store, sent, episode, statut):
+    async def test_a_production_in_progress_is_never_interrupted(
+        self, store, sent, episode, statut
+    ):
         store.add(REF, statut=statut)
         with pytest.raises(renvoi.RenvoiRefused) as err:
             await renvoi.resend("episode:abc")
@@ -119,7 +169,9 @@ class TestResend:
         assert store.by_ref(REF)["statut"] == statut
 
     @pytest.mark.asyncio
-    async def test_an_episode_older_than_saqrs_last_request_is_refused(self, store, sent, episode):
+    async def test_an_episode_older_than_saqrs_last_request_is_refused(
+        self, store, sent, episode
+    ):
         store.add(REF, statut="echec")
         episode["apres_demande"] = False
         with pytest.raises(renvoi.RenvoiRefused) as err:
@@ -136,7 +188,9 @@ class TestResend:
         assert err.value.status == 409 and sent == []
 
     @pytest.mark.asyncio
-    async def test_an_audio_outside_the_allowed_folder_is_refused(self, store, sent, episode, monkeypatch):
+    async def test_an_audio_outside_the_allowed_folder_is_refused(
+        self, store, sent, episode, monkeypatch
+    ):
         store.add(REF, statut="echec")
         monkeypatch.setattr(renvoi, "resolve_contained_audio_path", lambda value: None)
         with pytest.raises(renvoi.RenvoiRefused) as err:
@@ -153,38 +207,65 @@ class TestResend:
         monkeypatch.setattr(renvoi, "probe_mp3", bad)
         with pytest.raises(renvoi.RenvoiRefused) as err:
             await renvoi.resend("episode:abc")
-        assert err.value.status == 409 and "durée trop courte" in str(err.value) and sent == []
+        assert (
+            err.value.status == 409
+            and "durée trop courte" in str(err.value)
+            and sent == []
+        )
 
 
 class TestSaqrAnswers:
     @pytest.mark.asyncio
-    async def test_when_saqr_refuses_the_run_goes_back_to_its_previous_state(self, store, episode, monkeypatch):
+    async def test_when_saqr_refuses_the_run_goes_back_to_its_previous_state(
+        self, store, episode, monkeypatch
+    ):
         async def refuse(payload):
-            raise SaqrRejected("Le rappel refusé par Saqr (HTTP 400 : audio_hote_refuse).")
+            raise SaqrRejected(
+                "Le rappel refusé par Saqr (HTTP 400 : audio_hote_refuse)."
+            )
 
         monkeypatch.setattr(renvoi, "post_callback", refuse)
-        store.add(REF, statut="pret", episode="episode:ancien", audio_url="https://d/ancien", duree_s=900.0,
-                  rappel_statut="envoye", rappel_tentatives=2)
+        store.add(
+            REF,
+            statut="pret",
+            episode="episode:ancien",
+            audio_url="https://d/ancien",
+            duree_s=900.0,
+            rappel_statut="envoye",
+            rappel_tentatives=2,
+        )
         with pytest.raises(renvoi.RenvoiRefused) as err:
             await renvoi.resend("episode:abc")
         assert err.value.status == 502 and "audio_hote_refuse" in str(err.value)
         row = store.by_ref(REF)
         assert (row["statut"], row["episode"], row["audio_url"], row["duree_s"]) == (
-            "pret", "episode:ancien", "https://d/ancien", 900.0,
+            "pret",
+            "episode:ancien",
+            "https://d/ancien",
+            900.0,
         )
         assert (row["rappel_statut"], row["rappel_tentatives"]) == ("envoye", 2)
 
     @pytest.mark.asyncio
-    async def test_a_refusal_after_a_failure_restores_the_failure(self, store, episode, monkeypatch):
+    async def test_a_refusal_after_a_failure_restores_the_failure(
+        self, store, episode, monkeypatch
+    ):
         async def refuse(payload):
             raise SaqrRejected("refusé")
 
         monkeypatch.setattr(renvoi, "post_callback", refuse)
-        store.add(REF, statut="echec", erreur="ffmpeg exited with code 245", rappel_statut="envoye")
+        store.add(
+            REF,
+            statut="echec",
+            erreur="ffmpeg exited with code 245",
+            rappel_statut="envoye",
+        )
         with pytest.raises(renvoi.RenvoiRefused):
             await renvoi.resend("episode:abc")
         row = store.by_ref(REF)
-        assert row["statut"] == "echec" and row["erreur"] == "ffmpeg exited with code 245"
+        assert (
+            row["statut"] == "echec" and row["erreur"] == "ffmpeg exited with code 245"
+        )
         assert "episode" not in row and "audio_url" not in row
 
     @pytest.mark.asyncio
@@ -200,5 +281,9 @@ class TestSaqrAnswers:
             await renvoi.resend("episode:abc")
         assert err.value.status == 503
         row = store.by_ref(REF)
-        assert (row["statut"], row["episode"], row["rappel_statut"]) == ("pret", "episode:abc", "a_envoyer")
+        assert (row["statut"], row["episode"], row["rappel_statut"]) == (
+            "pret",
+            "episode:abc",
+            "a_envoyer",
+        )
         assert [r["ref"] for r in await runs.list_pending_callbacks()] == [REF]
