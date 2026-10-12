@@ -205,7 +205,22 @@ async def read_sources(sources: List[Dict[str, Any]]) -> List[ingest.SourceResul
 
 
 def source_title(result: ingest.SourceResult) -> str:
-    return f"[Source {result.n}] {result.titre} ({result.editeur}, {result.meta})"
+    """Titre de la source dans le notebook, tel que les voix le liront: sans numéro.
+
+    Le titre « [Source 6] … » faisait dire « la source 6 » aux voix (constaté le 12/10): une source se nomme.
+    """
+    return f"{result.titre} ({result.editeur}, {result.meta})"
+
+
+def unique_titles(results: List[ingest.SourceResult]) -> List[str]:
+    """Un titre par source; deux sources de même titre ne doivent pas se fondre en une seule dans le notebook."""
+    seen: Dict[str, int] = {}
+    titles: List[str] = []
+    for result in results:
+        title = source_title(result)
+        seen[title] = seen.get(title, 0) + 1
+        titles.append(title if seen[title] == 1 else f"{title} (doublon {seen[title]})")
+    return titles
 
 
 async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[str, List[Tuple[str, str]]]:
@@ -223,10 +238,8 @@ async def store_notebook(ref: str, results: List[ingest.SourceResult]) -> Tuple[
         notebook = Notebook(name=name, description=f"Sources intégrales de la veille Saqr du {ingest.french_date(ref)}.")
         await notebook.save()
     existing = {s.title: s for s in await notebook.get_sources(include_full_text=True)}
-    titles: List[str] = []
-    for result in results:
-        title = source_title(result)
-        titles.append(title)
+    titles = unique_titles(results)
+    for result, title in zip(results, titles):
         source = existing.get(title)
         if source is None:
             source = Source(title=title, full_text=result.texte, topics=[], asset=Asset(url=result.url or None))

@@ -425,3 +425,33 @@ class TestMinimumWordsFollowTheMatter:
         report = cg.check_transcript(["mot " * 50], "mot", word_range=(2100, 3200))
         assert report.violations[0].kind == "duree_hors_cible"
         assert "13 à 20 minutes" in report.violations[0].detail
+
+
+class TestNamedSources:
+    """Décision d'Amine du 12/10: « source 1, source 2 » est à bannir, une source se nomme."""
+
+    @pytest.mark.parametrize("line", [
+        "La source 1 précise un allongement moyen de 3,45 jours.",
+        "Selon la Source 7, 85 % des puces sont locales.",
+        "Il faut suivre la source 6 et nommer un responsable.",
+        "Les sources 3 et 4 convergent.",
+        "Comme le dit la source n° 11, la proximité compte.",
+        "L'étude MASTIF, en source dix, a testé 4 frameworks.",
+    ])
+    def test_a_numbered_source_is_refused(self, line):
+        report = cg.check_transcript([line], "3,45 85 6 11 4 MASTIF")
+        assert [v.kind for v in report.violations] == ["source_numerotee"]
+
+    @pytest.mark.parametrize("line", [
+        "Selon le blog d'OpenAI, le score passe de 23,2 % à 32 %.",
+        "Une source un peu technique l'explique.",
+        "Plusieurs sources confirment ce chiffre.",
+        "C'est notre unique source de revenus, dit l'étude.",
+    ])
+    def test_a_named_or_general_mention_is_accepted(self, line):
+        report = cg.check_transcript([line], SOURCES)
+        assert not any(v.kind == "source_numerotee" for v in report.violations)
+
+    def test_the_refusal_tells_the_model_what_to_do_instead(self):
+        report = cg.check_transcript(["La source 6 est claire."], "6")
+        assert "éditeur" in report.violations[0].detail and "titre" in report.violations[0].detail

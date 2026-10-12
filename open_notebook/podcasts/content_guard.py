@@ -110,6 +110,13 @@ _FORBIDDEN_COMPILED = tuple(
     (label, re.compile(fr), re.compile(en)) for label, fr, en in _FORBIDDEN
 )
 
+# « la source 6 », « source n° 3 », « sources 1 et 2 »: un numéro interne que l'auditeur ne peut pas
+# connaître. Une source se nomme (éditeur, auteur ou titre), décision d'Amine du 12/10 (« à bannir »).
+# « un » est exclu: « une source un peu technique » est du français correct.
+_NUMBERED_SOURCE = re.compile(
+    r"\bsources?\s+(?:n[°ºo]?\s*)?(?:\d{1,2}|deux|trois|quatre|cinq|six|sept|huit|neuf|dix|onze|douze)\b"
+)
+
 _NUMBER = re.compile(r"(\d+(?:\.\d+)?)(\s*(?:%|€|\$))?")
 _PROPER_NOUN = re.compile(r"(?<=[a-zàâçéèêëîïôûùüÿ,;:] )([A-ZÀÂÇÉÈÊËÎÏÔÛÙÜ][\wÀ-ÿ'-]{2,})")
 
@@ -390,6 +397,17 @@ def check_transcript(
                 report.violations.append(
                     GuardIssue(index, "terme_commercial", f"« {label} » absent des sources")
                 )
+
+        numbered = _NUMBERED_SOURCE.search(folded)
+        if numbered:
+            report.violations.append(
+                GuardIssue(
+                    index,
+                    "source_numerotee",
+                    f"« {numbered.group(0)} » est un numéro interne : nomme la source par son éditeur, "
+                    "son auteur ou son titre, jamais par un numéro",
+                )
+            )
 
         for token, checked in _numbers(line, False, True).items():
             if checked and token not in allowed_numbers:

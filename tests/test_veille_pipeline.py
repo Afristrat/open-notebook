@@ -143,7 +143,7 @@ class TestSaqrResponses:
 
 
 def _script(monkeypatch, outcomes, episode_id=None, output_dir=None):
-    calls = {"submits": [], "finalized": [], "suffixes": []}
+    calls: dict[str, list] = {"submits": [], "finalized": [], "suffixes": []}
 
     async def fake_submit(name, content, resume_episode_id, briefing_suffix=None):
         calls["suffixes"].append(briefing_suffix)
@@ -312,7 +312,7 @@ class TestProduce:
         async def fake_fetch(ref):
             return _piece()
 
-        captured = {}
+        captured: dict = {}
 
         async def fake_generate(run, content, name):
             captured.update(content=content, name=name)
@@ -332,7 +332,7 @@ class TestProduce:
         async def fake_fetch(ref):
             return _piece()
 
-        captured = {}
+        captured: dict = {}
 
         async def fake_generate(run, content, name):
             captured.update(content=content, name=name)
@@ -392,7 +392,10 @@ class TestProduce:
 @pytest.fixture
 def world(monkeypatch):
     """Notebooks et sources en mémoire (mêmes méthodes que open_notebook.domain.notebook)."""
-    by_name, by_id, members, indexed = {}, {}, {}, []
+    by_name: dict = {}
+    by_id: dict = {}
+    members: dict = {}
+    indexed: list = []
 
     class FakeSource:
         def __init__(self, title, full_text, topics=None, asset=None):
@@ -472,6 +475,25 @@ class TestStoreNotebook:
     async def test_a_source_without_text_in_the_notebook_is_refused(self, world):
         with pytest.raises(pipeline.ProductionFailed, match="absente"):
             await pipeline.store_notebook(REF, [_result(1, "")])
+
+    @pytest.mark.asyncio
+    async def test_a_source_is_titled_by_its_name_never_by_a_number(self, world):
+        _, stored = await pipeline.store_notebook(REF, [_result(1, "Texte A."), _result(6, "Texte F.")])
+        assert [title for title, _ in stored] == [
+            "Titre 1 (ARXIV, ARXIV, score 60)", "Titre 6 (ARXIV, ARXIV, score 60)",
+        ]
+        assert not any("[Source" in title for title, _ in stored)
+
+    @pytest.mark.asyncio
+    async def test_two_sources_with_the_same_title_stay_two_sources(self, world):
+        twin = ingest.SourceResult(
+            n=2, statut=ingest.INGEREE, detail="", titre="Titre 1", editeur="ARXIV",
+            meta="ARXIV, score 60", url="https://exemple.org/2", texte="Texte jumeau.",
+        )
+        notebook_id, stored = await pipeline.store_notebook(REF, [_result(1, "Texte A."), twin])
+        assert [text for _, text in stored] == ["Texte A.", "Texte jumeau."]
+        assert len({title for title, _ in stored}) == 2 and len(world.members[notebook_id]) == 2
+
 
 
 class TestReadSources:
