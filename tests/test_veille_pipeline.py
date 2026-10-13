@@ -250,6 +250,13 @@ class TestGenerate:
             and GUARD_REFUSAL[len(pipeline.GUARD_PREFIX) :].strip(" :") in second
         )
 
+    def test_a_length_refusal_asks_for_a_longer_transcript(self):
+        feedback = pipeline.refusal_feedback(
+            f"{pipeline.GUARD_PREFIX} : 1 écart(s). ligne 0 (duree_hors_cible) 1340 mots (cible 2100 à 3200)"
+        )
+        assert "sans allonger" not in feedback
+        assert "18 répliques pour CHAQUE source" in feedback
+
     @pytest.mark.asyncio
     async def test_a_voice_outage_resumes_the_same_episode_at_the_clip(
         self, store, monkeypatch, tmp_path

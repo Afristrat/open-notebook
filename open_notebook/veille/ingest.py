@@ -22,17 +22,42 @@ from xml.etree import ElementTree
 from open_notebook.podcasts.content_guard import SOURCES_DELIMITER
 
 MONTHS = [
-    "janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août",
-    "septembre", "octobre", "novembre", "décembre",
+    "janvier",
+    "février",
+    "mars",
+    "avril",
+    "mai",
+    "juin",
+    "juillet",
+    "août",
+    "septembre",
+    "octobre",
+    "novembre",
+    "décembre",
 ]
 PAYWALL_MARKERS = (
-    "abonnez-vous", "réservé aux abonnés", "article réservé", "subscribe to continue",
-    "subscribe to read", "sign in to continue", "log in to continue", "access denied",
-    "403 forbidden", "enable javascript", "verify you are human",
+    "abonnez-vous",
+    "réservé aux abonnés",
+    "article réservé",
+    "subscribe to continue",
+    "subscribe to read",
+    "sign in to continue",
+    "log in to continue",
+    "access denied",
+    "403 forbidden",
+    "enable javascript",
+    "verify you are human",
 )
 BOILERPLATE = (
-    "cookie", "privacy policy", "consent", "storage preferences", "subscribe",
-    "abonnez", "newsletter", "opens an external", "all rights reserved",
+    "cookie",
+    "privacy policy",
+    "consent",
+    "storage preferences",
+    "subscribe",
+    "abonnez",
+    "newsletter",
+    "opens an external",
+    "all rights reserved",
 )
 MIN_TEXT_CHARS = 300
 SHORT_FORM_MIN_CHARS = 80
@@ -65,8 +90,13 @@ class SourceResult:
     def report(self) -> Dict[str, Any]:
         """Version sans texte, destinee au rapport conserve en base."""
         return {
-            "n": self.n, "statut": self.statut, "detail": self.detail, "titre": self.titre,
-            "editeur": self.editeur, "meta": self.meta, "url": self.url,
+            "n": self.n,
+            "statut": self.statut,
+            "detail": self.detail,
+            "titre": self.titre,
+            "editeur": self.editeur,
+            "meta": self.meta,
+            "url": self.url,
         }
 
 
@@ -136,7 +166,12 @@ def source_urls(source: Dict[str, Any]) -> Tuple[str, Optional[str]]:
     `url_canonique` (contrat étendu du 05/10) ne passe qu'après `article_url`: elle ne sert que là où celui-ci
     est vide (mesuré: 1 source sur 3 le 04/10, 2 sur 10 le 03/10), jamais à la place d'une adresse déjà lue.
     """
-    url = (source.get("article_url") or source.get("url_canonique") or source.get("url") or "").strip()
+    url = (
+        source.get("article_url")
+        or source.get("url_canonique")
+        or source.get("url")
+        or ""
+    ).strip()
     raw = (source.get("url") or "").strip()
     match = _ARXIV_ABS.search(raw) or _ARXIV_ABS.search(url)
     return url, (f"https://arxiv.org/pdf/{match.group(1)}" if match else None)
@@ -162,8 +197,12 @@ def arxiv_search_query(text: Optional[str]) -> Optional[str]:
     if len(tokens) < ARXIV_MIN_TOKENS:
         return None
     hyphenated = sorted((t for t in tokens if "-" in t), key=len, reverse=True)[:2]
-    plain = sorted((t for t in tokens if "-" not in t), key=len, reverse=True)[: 3 - len(hyphenated)]
-    return " AND ".join([f'all:"{t}"' for t in hyphenated] + [f"all:{t}" for t in plain])
+    plain = sorted((t for t in tokens if "-" not in t), key=len, reverse=True)[
+        : 3 - len(hyphenated)
+    ]
+    return " AND ".join(
+        [f'all:"{t}"' for t in hyphenated] + [f"all:{t}" for t in plain]
+    )
 
 
 def parse_arxiv_feed(xml_text: str) -> List[Dict[str, str]]:
@@ -179,15 +218,19 @@ def parse_arxiv_feed(xml_text: str) -> List[Dict[str, str]]:
     for entry in root.iter(f"{_ATOM}entry"):
         ident = (entry.findtext(f"{_ATOM}id") or "").rsplit("/abs/", 1)[-1].strip()
         if ident:
-            entries.append({
-                "id": ident,
-                "title": (entry.findtext(f"{_ATOM}title") or "").strip(),
-                "summary": (entry.findtext(f"{_ATOM}summary") or "").strip(),
-            })
+            entries.append(
+                {
+                    "id": ident,
+                    "title": (entry.findtext(f"{_ATOM}title") or "").strip(),
+                    "summary": (entry.findtext(f"{_ATOM}summary") or "").strip(),
+                }
+            )
     return entries
 
 
-def pick_arxiv_match(text: Optional[str], entries: List[Dict[str, str]]) -> Optional[str]:
+def pick_arxiv_match(
+    text: Optional[str], entries: List[Dict[str, str]]
+) -> Optional[str]:
     """Identifiant de l'article arXiv que le post annonce, ou None: jamais un article au hasard.
 
     Le post doit retrouver au moins 60 % de ses mots distinctifs dans le titre et le résumé de l'article.
@@ -197,14 +240,20 @@ def pick_arxiv_match(text: Optional[str], entries: List[Dict[str, str]]) -> Opti
         return None
     best, best_overlap = None, ARXIV_MIN_OVERLAP
     for entry in entries:
-        overlap = len(wanted & _distinct_tokens(entry["title"] + " " + entry["summary"])) / len(wanted)
+        overlap = len(
+            wanted & _distinct_tokens(entry["title"] + " " + entry["summary"])
+        ) / len(wanted)
         if overlap >= best_overlap:
             best, best_overlap = entry["id"], overlap
     return best
 
 
 def classify(
-    source: Dict[str, Any], title: Optional[str], text: str, seen: Dict[int, str], provided: bool = False
+    source: Dict[str, Any],
+    title: Optional[str],
+    text: str,
+    seen: Dict[int, str],
+    provided: bool = False,
 ) -> Tuple[str, str]:
     """Statut et détail d'une source à partir de ce que Diwan a lu (texte vide = lecture ratée).
 
@@ -221,14 +270,23 @@ def classify(
     # « Abonnez-vous » n'est que le lien du menu.
     if not provided and len(text) < 3000 and any(m in low for m in PAYWALL_MARKERS):
         return PAYWALL, "marqueur de paywall ou d'accès refusé"
-    if len(text) < (SHORT_FORM_MIN_CHARS if provided or is_short_form(source) else MIN_TEXT_CHARS):
+    if len(text) < (
+        SHORT_FORM_MIN_CHARS if provided or is_short_form(source) else MIN_TEXT_CHARS
+    ):
         return ECHEC, f"texte trop court ({len(text)} caractères)"
-    expected = title_tokens(source.get("titre"))
+    # Le texte fourni est la capture de Saqr pour CE signal (description d'une vidéo, résumé de flux): il n'a pas
+    # à reprendre les mots du titre. Le 13/10, 9 vidéos YouTube sur 10 sources perdues étaient « divergentes ».
+    expected = set() if provided else title_tokens(source.get("titre"))
     if expected:
-        haystack = set(re.findall(r"[a-z0-9]{4,}", fold((title or "") + " " + text[:1500])))
+        haystack = set(
+            re.findall(r"[a-z0-9]{4,}", fold((title or "") + " " + text[:1500]))
+        )
         overlap = len(expected & haystack) / len(expected)
         if overlap < 0.5:
-            return DIVERGENT, f"page ne correspond pas au titre annoncé (recouvrement {overlap:.0%})"
+            return (
+                DIVERGENT,
+                f"page ne correspond pas au titre annoncé (recouvrement {overlap:.0%})",
+            )
     head = fold(text[:1200])
     for other_n, other in seen.items():
         matcher = difflib.SequenceMatcher(None, head, other, autojunk=False)
@@ -266,7 +324,9 @@ def build_source_text(full_text: str, article_text: str = "") -> str:
     """Texte intégral d'une source: la page lue, puis l'article complet quand il est distinct."""
     base = main_text(full_text)
     article = main_text(article_text) if article_text else ""
-    return base + ("\n\n[Article complet]\n" + article if article and article not in base else "")
+    return base + (
+        "\n\n[Article complet]\n" + article if article and article not in base else ""
+    )
 
 
 def alteration_rate(results: List[SourceResult]) -> float:

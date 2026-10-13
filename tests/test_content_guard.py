@@ -460,6 +460,39 @@ class TestGuardNode:
         with pytest.raises(ValueError, match="corpus des sources"):
             await cg.content_guard_node(state)
 
+    @pytest.mark.asyncio
+    async def test_length_marker_alone_refuses_a_short_transcript(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(cg, "MIN_WORDS", 2100)
+        monkeypatch.setattr(cg, "MIN_WORDS_FLOOR", 700)
+        content = f"veille\n{cg.SOURCES_DELIMITER}\n{SOURCES}"
+        state = make_state(
+            tmp_path,
+            f"{cg.LENGTH_MARKER}\nbriefing",
+            ["Rabat accueille 12 équipes."],
+            content,
+        )
+
+        with pytest.raises(ValueError, match="duree_hors_cible"):
+            await cg.content_guard_node(state)
+
+    @pytest.mark.asyncio
+    async def test_length_marker_alone_ignores_every_other_violation(
+        self, tmp_path, monkeypatch
+    ):
+        monkeypatch.setattr(cg, "MIN_WORDS", 1)
+        monkeypatch.setattr(cg, "MIN_WORDS_FLOOR", 1)
+        content = f"veille avec 87 %\n{cg.SOURCES_DELIMITER}\n{SOURCES}"
+        state = make_state(
+            tmp_path,
+            f"{cg.LENGTH_MARKER}\nbriefing",
+            ["Cela représente 87 % des cas."],
+            content,
+        )
+
+        assert await cg.content_guard_node(state) == {}
+
 
 class TestRegressionOfTheDay03:
     """Le 03/10, un monologue de 2 027 à 2 193 mots était refusé 5 fois sur 5, et « 777 » (de $777.72) aussi."""

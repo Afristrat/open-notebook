@@ -338,6 +338,14 @@ def refusal_feedback(error: str) -> str:
     Constaté le 03/10 : relancer à l'identique ne change rien (Hanae restait à 14-18 % sur 10 essais).
     """
     reasons = error[len(GUARD_PREFIX) :].lstrip(" :")
+    if "duree_hors_cible" in reasons:
+        return (
+            "La transcription précédente a été REFUSÉE par le contrôle de contenu : "
+            f"{reasons}. Écris une nouvelle transcription qui atteint la fourchette de mots demandée : "
+            "un mini-débat de 18 répliques pour CHAQUE source (au plus 6), puis les deux mini-débats d'analyse, "
+            "sans regrouper plusieurs sources dans un même débat. Approfondis par des angles nouveaux, "
+            "jamais en répétant."
+        )
     return (
         "La transcription précédente a été REFUSÉE par le contrôle de contenu. Écris une nouvelle "
         f"transcription qui corrige exactement ces points : {reasons}. Quand une part de parole est en "

@@ -109,6 +109,9 @@ _MULTIPLIERS = {
 _NUMBER_WORDS = set(_UNITS) | set(_MULTIPLIERS) | {"vingt", "vingts", "cent", "cents"}
 
 MARKER = "[CONTRÔLE VEILLE]"
+# Garde de durée seule : refuse un épisode sous le plancher de mots sans les autres contrôles (parts de parole,
+# clôture, sources). Le contrôle complet est inactif depuis le 08/10 et un épisode de 8 min est passé le 13/10.
+LENGTH_MARKER = "[LONGUEUR VEILLE]"
 SOURCES_DELIMITER = "=== SOURCES INGÉRÉES ==="
 DATE_LINE_PREFIX = "date de la veille :"
 
@@ -516,7 +519,9 @@ async def content_guard_node(
     state: Any, config: Optional[RunnableConfig] = None
 ) -> Dict[str, Any]:
     """Nœud LangGraph : échoue avant la synthèse vocale si la transcription s'écarte des sources."""
-    if MARKER not in (state.get("briefing") or ""):
+    briefing = state.get("briefing") or ""
+    full_check = MARKER in briefing
+    if not full_check and LENGTH_MARKER not in briefing:
         return {}
 
     transcript = state.get("transcript") or []
@@ -551,12 +556,17 @@ async def content_guard_node(
         except OSError as exc:
             logger.warning(f"[guard] rapport non écrit : {exc}")
 
-    if report.violations:
+    violations = (
+        report.violations
+        if full_check
+        else [v for v in report.violations if v.kind == "duree_hors_cible"]
+    )
+    if violations:
         shown = "; ".join(
-            f"ligne {v.line} ({v.kind}) {v.detail}" for v in report.violations[:8]
+            f"ligne {v.line} ({v.kind}) {v.detail}" for v in violations[:8]
         )
         raise ValueError(
-            f"Contrôle de contenu : {len(report.violations)} écart(s) avec les sources, "
+            f"Contrôle de contenu : {len(violations)} écart(s) avec les sources, "
             f"aucune voix générée. {shown}"
         )
     logger.info(
