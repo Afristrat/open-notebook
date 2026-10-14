@@ -158,7 +158,7 @@ class PodcastService:
         """Newest first, without the heavy fields (transcript, outline, briefing)."""
         try:
             return await repo_query(
-                "SELECT id, command, audio_file FROM episode ORDER BY created DESC"
+                "SELECT id, command, audio_file, created FROM episode ORDER BY created DESC"
             )
         except Exception as e:
             logger.error(f"Failed to list podcast episode stubs: {e}")

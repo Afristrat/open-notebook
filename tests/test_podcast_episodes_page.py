@@ -88,3 +88,16 @@ def test_status_groups_match_the_frontend_grouping():
     assert _status_group("error") == "failed"
     assert _status_group("unknown") == "pending"
     assert _status_group("completed") == "completed"
+
+
+@pytest.mark.asyncio
+async def test_the_stub_query_selects_the_field_it_sorts_on():
+    """SurrealDB refuse un ORDER BY sur un champ absent de la sélection (500 du 14/10, invisible avec une base simulée)."""
+    from api.podcast_service import PodcastService
+
+    with patch(
+        "api.podcast_service.repo_query", new=AsyncMock(return_value=[])
+    ) as query:
+        await PodcastService.list_episode_stubs()
+    sql = query.await_args.args[0]
+    assert "ORDER BY created" in sql and "created" in sql.split("FROM")[0]
