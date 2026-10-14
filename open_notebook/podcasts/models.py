@@ -281,7 +281,8 @@ class PodcastEpisode(ObjectModel):
         default=None, description="UTC timestamp when the episode was published"
     )
     description: Optional[str] = Field(
-        default=None, description="Public-facing episode description (feed item summary)"
+        default=None,
+        description="Public-facing episode description (feed item summary)",
     )
     image_url: Optional[str] = Field(
         default=None, description="Optional per-episode cover art URL"
@@ -354,7 +355,7 @@ class PodcastEpisode(ObjectModel):
             return grouped
         try:
             result = await repo_query(
-                "SELECT * FROM command WHERE id IN $command_ids",
+                "SELECT id, status, error_message FROM command WHERE id IN $command_ids",
                 {"command_ids": [ensure_record_id(cid) for cid in ids]},
             )
         except Exception as e:

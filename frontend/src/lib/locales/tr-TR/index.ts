@@ -47,6 +47,7 @@ export const trTR = {
     success: "Başarılı",
     model: "Model",
     back: "Geri",
+    previous: "Geri",
     next: "İleri",
     done: "Tamam",
     processing: "İşleniyor...",

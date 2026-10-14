@@ -47,6 +47,7 @@ export const jaJP = {
     success: "成功",
     model: "モデル",
     back: "戻る",
+    previous: "前へ",
     next: "次へ",
     done: "完了",
     processing: "処理中...",

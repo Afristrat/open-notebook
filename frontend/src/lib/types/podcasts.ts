@@ -175,6 +175,21 @@ export interface PodcastGenerationResponse {
   episode_name: string
 }
 
+export const EPISODES_PAGE_SIZE = 5
+
+export interface EpisodeStatusCounts {
+  total: number
+  running: number
+  completed: number
+  failed: number
+  pending: number
+}
+
+export interface PodcastEpisodePage {
+  items: PodcastEpisode[]
+  counts: EpisodeStatusCounts
+}
+
 export type EpisodeStatusGroup = 'running' | 'completed' | 'failed' | 'pending'
 
 export type EpisodeStatusGroups = Record<EpisodeStatusGroup, PodcastEpisode[]>

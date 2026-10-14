@@ -47,6 +47,7 @@ export const esES = {
     success: "Éxito",
     model: "Modelo",
     back: "Atrás",
+    previous: "Anterior",
     next: "Siguiente",
     done: "Listo",
     processing: "Procesando...",

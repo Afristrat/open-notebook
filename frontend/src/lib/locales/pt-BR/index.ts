@@ -47,6 +47,7 @@ export const ptBR = {
     success: "Sucesso",
     model: "Modelo",
     back: "Voltar",
+    previous: "Anterior",
     next: "Próximo",
     done: "Concluído",
     processing: "Processando...",

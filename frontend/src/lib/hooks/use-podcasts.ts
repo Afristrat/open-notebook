@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { podcastsApi, EpisodeProfileInput, SpeakerProfileInput } from '@/lib/api/podcasts'
 import { QUERY_KEYS } from '@/lib/api/query-client'
@@ -8,7 +8,9 @@ import { useTranslation } from '@/lib/hooks/use-translation'
 import { getApiErrorKey, getApiErrorMessage } from '@/lib/utils/error-handler'
 import {
   ACTIVE_EPISODE_STATUSES,
+  EPISODES_PAGE_SIZE,
   EpisodeProfile,
+  EpisodeStatusCounts,
   EpisodeStatusGroups,
   PodcastEpisode,
   PodcastGenerationRequest,
@@ -26,13 +28,8 @@ export function useLanguages() {
   })
 }
 
-interface EpisodeStatusCounts {
-  total: number
-  running: number
-  completed: number
-  failed: number
-  pending: number
-}
+const NO_EPISODES: PodcastEpisode[] = []
+const NO_COUNTS: EpisodeStatusCounts = { total: 0, running: 0, completed: 0, failed: 0, pending: 0 }
 
 function hasActiveEpisodes(episodes: PodcastEpisode[]) {
   return episodes.some((episode) => {
@@ -41,42 +38,34 @@ function hasActiveEpisodes(episodes: PodcastEpisode[]) {
   })
 }
 
-export function usePodcastEpisodes(options?: { autoRefresh?: boolean }) {
+/** One page of episodes (newest first); the counts cover every episode, not just the page. */
+export function usePodcastEpisodes(page: number, options?: { autoRefresh?: boolean }) {
   const { autoRefresh = true } = options ?? {}
 
   const query = useQuery({
-    queryKey: QUERY_KEYS.podcastEpisodes,
-    queryFn: podcastsApi.listEpisodes,
+    queryKey: [...QUERY_KEYS.podcastEpisodes, 'page', page],
+    queryFn: () => podcastsApi.listEpisodesPage(page),
+    placeholderData: keepPreviousData,
     refetchInterval: (current) => {
       if (!autoRefresh) {
         return false
       }
 
-      const data = current.state.data as PodcastEpisode[] | undefined
-      if (!data || data.length === 0) {
+      const data = current.state.data
+      if (!data || data.items.length === 0) {
         return false
       }
 
-      return hasActiveEpisodes(data) ? 15_000 : false
+      return hasActiveEpisodes(data.items) ? 15_000 : false
     },
   })
 
-  const episodes = useMemo(() => query.data ?? [], [query.data])
+  const episodes = query.data?.items ?? NO_EPISODES
+  const statusCounts = query.data?.counts ?? NO_COUNTS
 
   const statusGroups = useMemo<EpisodeStatusGroups>(
     () => groupEpisodesByStatus(episodes),
     [episodes]
-  )
-
-  const statusCounts = useMemo<EpisodeStatusCounts>(
-    () => ({
-      total: episodes.length,
-      running: statusGroups.running.length,
-      completed: statusGroups.completed.length,
-      failed: statusGroups.failed.length,
-      pending: statusGroups.pending.length,
-    }),
-    [episodes.length, statusGroups]
   )
 
   const active = useMemo(() => hasActiveEpisodes(episodes), [episodes])
@@ -86,6 +75,7 @@ export function usePodcastEpisodes(options?: { autoRefresh?: boolean }) {
     episodes,
     statusGroups,
     statusCounts,
+    totalPages: Math.ceil(statusCounts.total / EPISODES_PAGE_SIZE),
     hasActiveEpisodes: active,
   }
 }

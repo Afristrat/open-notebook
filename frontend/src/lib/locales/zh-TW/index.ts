@@ -47,6 +47,7 @@ export const zhTW = {
     success: "成功",
     model: "模型",
     back: "返回",
+    previous: "上一步",
     next: "下一步",
     done: "完成",
     processing: "處理中...",

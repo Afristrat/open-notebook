@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse, Response
 from loguru import logger
 from pydantic import BaseModel
@@ -186,85 +186,90 @@ async def get_podcast_job_status(job_id: str):
         raise HTTPException(status_code=500, detail="Failed to fetch job status")
 
 
+async def _to_responses(
+    episodes: List[PodcastEpisode],
+) -> List[PodcastEpisodeResponse]:
+    """Build the API view of episodes (job status, resolved models, audio URL) with batched lookups."""
+    # Batch-fetch job status for every episode with a command in one
+    # query instead of one round trip per episode (see
+    # PodcastEpisode.get_job_details_for_commands docstring).
+    try:
+        details_by_command = await PodcastEpisode.get_job_details_for_commands(
+            [episode.command for episode in episodes if episode.command]
+        )
+    except Exception as e:
+        logger.warning(f"Error batch-fetching podcast job statuses: {str(e)}")
+        details_by_command = {}
+
+    # Batch-resolve the snapshots' model references (outline_llm,
+    # transcript_llm, voice_model) to display fields in one query
+    # instead of one lookup per episode.
+    models_by_id = await _resolve_snapshot_models(episodes)
+
+    response_episodes = []
+    for episode in episodes:
+        # Skip incomplete episodes without command or audio
+        if not episode.command and not episode.audio_file:
+            continue
+
+        # Get job status and error message if available
+        job_status = None
+        error_message = None
+        if episode.command:
+            detail = details_by_command.get(str(episode.command))
+            if detail is not None:
+                job_status = detail["status"]
+                error_message = detail["error_message"]
+            else:
+                job_status = "unknown"
+        else:
+            # No command but has audio file = completed import
+            job_status = "completed"
+
+        audio_url = None
+        audio_path = resolve_contained_audio_path(episode.audio_file)
+        if audio_path is not None and audio_path.exists():
+            audio_url = f"/api/podcasts/episodes/{episode.id}/audio"
+
+        response_episodes.append(
+            PodcastEpisodeResponse(
+                id=str(episode.id),
+                name=episode.name,
+                episode_profile=_with_resolved_model_fields(
+                    episode.episode_profile,
+                    _EPISODE_PROFILE_MODEL_FIELDS,
+                    models_by_id,
+                ),
+                speaker_profile=_with_resolved_model_fields(
+                    episode.speaker_profile,
+                    _SPEAKER_PROFILE_MODEL_FIELDS,
+                    models_by_id,
+                ),
+                briefing=episode.briefing,
+                audio_file=episode.audio_file,
+                audio_url=audio_url,
+                transcript=episode.transcript,
+                outline=episode.outline,
+                created=str(episode.created) if episode.created else None,
+                job_status=job_status,
+                error_message=error_message,
+                published=bool(getattr(episode, "published", False)),
+                published_at=(
+                    str(episode.published_at) if episode.published_at else None
+                ),
+                description=episode.description,
+                image_url=episode.image_url,
+            )
+        )
+
+    return response_episodes
+
+
 @router.get("/podcasts/episodes", response_model=List[PodcastEpisodeResponse])
 async def list_podcast_episodes():
     """List all podcast episodes"""
     try:
-        episodes = await PodcastService.list_episodes()
-
-        # Batch-fetch job status for every episode with a command in one
-        # query instead of one round trip per episode (see
-        # PodcastEpisode.get_job_details_for_commands docstring).
-        try:
-            details_by_command = await PodcastEpisode.get_job_details_for_commands(
-                [episode.command for episode in episodes if episode.command]
-            )
-        except Exception as e:
-            logger.warning(f"Error batch-fetching podcast job statuses: {str(e)}")
-            details_by_command = {}
-
-        # Batch-resolve the snapshots' model references (outline_llm,
-        # transcript_llm, voice_model) to display fields in one query
-        # instead of one lookup per episode.
-        models_by_id = await _resolve_snapshot_models(episodes)
-
-        response_episodes = []
-        for episode in episodes:
-            # Skip incomplete episodes without command or audio
-            if not episode.command and not episode.audio_file:
-                continue
-
-            # Get job status and error message if available
-            job_status = None
-            error_message = None
-            if episode.command:
-                detail = details_by_command.get(str(episode.command))
-                if detail is not None:
-                    job_status = detail["status"]
-                    error_message = detail["error_message"]
-                else:
-                    job_status = "unknown"
-            else:
-                # No command but has audio file = completed import
-                job_status = "completed"
-
-            audio_url = None
-            audio_path = resolve_contained_audio_path(episode.audio_file)
-            if audio_path is not None and audio_path.exists():
-                audio_url = f"/api/podcasts/episodes/{episode.id}/audio"
-
-            response_episodes.append(
-                PodcastEpisodeResponse(
-                    id=str(episode.id),
-                    name=episode.name,
-                    episode_profile=_with_resolved_model_fields(
-                        episode.episode_profile,
-                        _EPISODE_PROFILE_MODEL_FIELDS,
-                        models_by_id,
-                    ),
-                    speaker_profile=_with_resolved_model_fields(
-                        episode.speaker_profile,
-                        _SPEAKER_PROFILE_MODEL_FIELDS,
-                        models_by_id,
-                    ),
-                    briefing=episode.briefing,
-                    audio_file=episode.audio_file,
-                    audio_url=audio_url,
-                    transcript=episode.transcript,
-                    outline=episode.outline,
-                    created=str(episode.created) if episode.created else None,
-                    job_status=job_status,
-                    error_message=error_message,
-                    published=bool(getattr(episode, "published", False)),
-                    published_at=(
-                        str(episode.published_at) if episode.published_at else None
-                    ),
-                    description=episode.description,
-                    image_url=episode.image_url,
-                )
-            )
-
-        return response_episodes
+        return await _to_responses(await PodcastService.list_episodes())
 
     except HTTPException:
         raise
@@ -272,6 +277,83 @@ async def list_podcast_episodes():
         raise
     except Exception as e:
         logger.error(f"Error listing podcast episodes: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list podcast episodes")
+
+
+EPISODES_PAGE_SIZE = 5
+
+
+class PodcastEpisodeCounts(BaseModel):
+    total: int
+    running: int
+    completed: int
+    failed: int
+    pending: int
+
+
+class PodcastEpisodePage(BaseModel):
+    items: List[PodcastEpisodeResponse]
+    counts: PodcastEpisodeCounts
+
+
+def _status_group(job_status: str) -> str:
+    """Same grouping as the frontend's groupEpisodesByStatus."""
+    if job_status in ("running", "processing"):
+        return "running"
+    if job_status == "completed":
+        return "completed"
+    if job_status in ("failed", "error"):
+        return "failed"
+    return "pending"
+
+
+@router.get("/podcasts/episodes/page", response_model=PodcastEpisodePage)
+async def list_podcast_episodes_page(
+    limit: int = Query(EPISODES_PAGE_SIZE, ge=1, le=50),
+    offset: int = Query(0, ge=0),
+):
+    """One page of episodes, newest first, with counts over all of them.
+
+    Only ids, commands and audio paths of every episode are read; the heavy
+    fields (transcript, outline, briefing) are loaded for the page alone. The
+    full list loaded every transcript at once and got the API killed for lack
+    of memory (14/10/2026).
+    """
+    try:
+        stubs = [
+            stub
+            for stub in await PodcastService.list_episode_stubs()
+            if stub.get("command") or stub.get("audio_file")
+        ]
+        details = await PodcastEpisode.get_job_details_for_commands(
+            [stub["command"] for stub in stubs if stub.get("command")]
+        )
+        counts = {"running": 0, "completed": 0, "failed": 0, "pending": 0}
+        for stub in stubs:
+            if stub.get("command"):
+                detail = details.get(str(stub["command"]))
+                status = detail["status"] if detail else "unknown"
+            else:
+                status = "completed"
+            counts[_status_group(str(status))] += 1
+
+        page_ids = [stub["id"] for stub in stubs[offset : offset + limit]]
+        by_id = {
+            str(episode.id): episode
+            for episode in await PodcastService.get_episodes(page_ids)
+        }
+        page = [by_id[str(i)] for i in page_ids if str(i) in by_id]
+        return PodcastEpisodePage(
+            items=await _to_responses(page),
+            counts=PodcastEpisodeCounts(total=len(stubs), **counts),
+        )
+
+    except HTTPException:
+        raise
+    except OpenNotebookError:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing podcast episodes page: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to list podcast episodes")
 
 
@@ -324,9 +406,7 @@ async def get_podcast_episode(episode_id: str):
             job_status=job_status,
             error_message=error_message,
             published=bool(getattr(episode, "published", False)),
-            published_at=(
-                str(episode.published_at) if episode.published_at else None
-            ),
+            published_at=(str(episode.published_at) if episode.published_at else None),
             description=episode.description,
             image_url=episode.image_url,
         )

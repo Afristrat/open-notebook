@@ -47,6 +47,7 @@ export const ruRU = {
     success: "Успешно",
     model: "Модель",
     back: "Назад",
+    previous: "Назад",
     next: "Далее",
     done: "Готово",
     processing: "Обработка...",

@@ -1,7 +1,8 @@
 import apiClient from './client'
 import { getApiUrl } from '@/lib/config'
 import {
-  PodcastEpisode,
+  EPISODES_PAGE_SIZE,
+  PodcastEpisodePage,
   PodcastFeed,
   PublishEpisodeRequest,
   PublishEpisodeResponse,
@@ -37,8 +38,10 @@ export async function resolvePodcastAssetUrl(path?: string | null): Promise<stri
 }
 
 export const podcastsApi = {
-  listEpisodes: async () => {
-    const response = await apiClient.get<PodcastEpisode[]>('/podcasts/episodes')
+  listEpisodesPage: async (page: number) => {
+    const response = await apiClient.get<PodcastEpisodePage>('/podcasts/episodes/page', {
+      params: { limit: EPISODES_PAGE_SIZE, offset: page * EPISODES_PAGE_SIZE },
+    })
     return response.data
   },
 

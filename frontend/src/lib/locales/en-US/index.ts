@@ -45,6 +45,7 @@ export const enUS = {
     success: "Success",
     model: "Model",
     back: "Back",
+    previous: "Previous",
     next: "Next",
     done: "Done",
     processing: "Processing...",

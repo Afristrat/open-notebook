@@ -186,7 +186,12 @@ class TestSaqrResponses:
 
 
 def _script(monkeypatch, outcomes, episode_id=None, output_dir=None):
-    calls: dict[str, list] = {"submits": [], "finalized": [], "suffixes": []}
+    calls: dict[str, list] = {
+        "submits": [],
+        "finalized": [],
+        "suffixes": [],
+        "deleted": [],
+    }
 
     async def fake_submit(name, content, resume_episode_id, briefing_suffix=None):
         calls["suffixes"].append(briefing_suffix)
@@ -206,6 +211,14 @@ def _script(monkeypatch, outcomes, episode_id=None, output_dir=None):
     async def fake_finalize(run, job):
         calls["finalized"].append(job)
 
+    async def fake_delete(episode):
+        calls["deleted"].append(episode["id"])
+
+    async def fake_discard_resumable(episode_id):
+        calls["deleted"].append(episode_id)
+
+    monkeypatch.setattr(pipeline, "_delete_episode", fake_delete)
+    monkeypatch.setattr(pipeline, "_discard_resumable", fake_discard_resumable)
     monkeypatch.setattr(pipeline, "_submit", fake_submit)
     monkeypatch.setattr(pipeline, "_wait", fake_wait)
     monkeypatch.setattr(pipeline, "_episode_of", fake_episode_of)
@@ -316,6 +329,65 @@ class TestGenerate:
         with pytest.raises(pipeline.ProductionFailed, match="Échec après 2 essais"):
             await pipeline.generate(store.add(), "contenu", "n")
         assert len(calls["submits"]) == 2 and calls["finalized"] == []
+
+    @pytest.mark.asyncio
+    async def test_an_exhausted_provider_credit_stops_at_the_first_attempt(
+        self, store, monkeypatch
+    ):
+        """14/10 : 402 « Insufficient Balance » relancé 12 fois par demande, 128 épisodes vides en une matinée."""
+        calls = _script(
+            monkeypatch,
+            [
+                {
+                    "status": "failed",
+                    "error_message": "Error code: 402 - DeepseekException Insufficient Balance",
+                }
+            ]
+            * 12,
+            episode_id="episode:vide",
+        )
+        with pytest.raises(pipeline.ProductionFailed, match="Crédit du fournisseur"):
+            await pipeline.generate(store.add(), "contenu", "n")
+        assert len(calls["submits"]) == 1
+        assert calls["deleted"] == ["episode:vide"]
+
+    @pytest.mark.asyncio
+    async def test_a_refused_attempt_leaves_no_episode_behind(self, store, monkeypatch):
+        calls = _script(
+            monkeypatch,
+            [
+                {"status": "failed", "error_message": GUARD_REFUSAL},
+                {"status": "completed"},
+            ],
+            episode_id="episode:refuse",
+        )
+        await pipeline.generate(store.add(), "contenu", "n")
+        assert calls["deleted"] == ["episode:refuse"]
+
+    @pytest.mark.asyncio
+    async def test_a_voice_outage_episode_is_kept_for_the_resume_then_dropped_if_all_fail(
+        self, store, monkeypatch, tmp_path
+    ):
+        (tmp_path / "transcript.json").write_text("[]", encoding="utf-8")
+        monkeypatch.setenv("SAQR_VEILLE_MAX_ATTEMPTS", "2")
+        calls = _script(
+            monkeypatch,
+            [{"status": "failed", "error_message": "HTTP 500 du serveur de voix"}] * 2,
+            episode_id="episode:abc",
+            output_dir=tmp_path,
+        )
+        with pytest.raises(pipeline.ProductionFailed, match="Échec après 2 essais"):
+            await pipeline.generate(store.add(), "contenu", "n")
+        assert calls["submits"] == [None, "episode:abc"]
+        assert calls["deleted"] == [
+            "episode:abc"
+        ]  # supprimé une seule fois, à l'échec final
+
+    def test_provider_exhaustion_is_recognised_without_matching_a_plain_failure(self):
+        assert pipeline.provider_exhausted("DeepseekException - Insufficient Balance")
+        assert pipeline.provider_exhausted("Error code: 402 - ...")
+        assert not pipeline.provider_exhausted(GUARD_REFUSAL)
+        assert not pipeline.provider_exhausted("HTTP 500 du serveur de voix")
 
     def test_the_default_is_twelve_attempts_and_a_bad_value_falls_back_to_it(
         self, monkeypatch

@@ -47,6 +47,7 @@ export const itIT = {
     success: "Successo",
     model: "Modello",
     back: "Indietro",
+    previous: "Indietro",
     next: "Avanti",
     done: "Fatto",
     processing: "Elaborazione...",

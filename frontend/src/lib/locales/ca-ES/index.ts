@@ -47,6 +47,7 @@ export const caES = {
     success: "Correcte",
     model: "Model",
     back: "Enrere",
+    previous: "Anterior",
     next: "Següent",
     done: "Fet",
     processing: "S'està processant...",

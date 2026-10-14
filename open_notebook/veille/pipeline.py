@@ -10,6 +10,7 @@ Règles de fiabilité (recette du 30/09 au 02/10/2026):
 
 import asyncio
 import os
+import shutil
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,10 +21,13 @@ from loguru import logger
 from surreal_commands import submit_command
 
 from api.podcast_service import PodcastService
-from open_notebook.database.repository import ensure_record_id, repo_query
+from open_notebook.database.repository import ensure_record_id, repo_delete, repo_query
 from open_notebook.domain.notebook import Asset, Notebook, Source
 from open_notebook.graphs.source import content_process
-from open_notebook.podcasts.audio_paths import resolve_contained_audio_path
+from open_notebook.podcasts.audio_paths import (
+    podcasts_root,
+    resolve_contained_audio_path,
+)
 from open_notebook.utils.url_validation import validate_url
 from open_notebook.veille import ingest, runs
 from open_notebook.veille.audio_check import AudioInvalid, probe_mp3
@@ -38,6 +42,13 @@ from open_notebook.veille.saqr_client import (
 EPISODE_PROFILE = os.environ.get("SAQR_VEILLE_EPISODE_PROFILE", "Veille-Eclaireurs")
 SPEAKER_PROFILE = os.environ.get("SAQR_VEILLE_SPEAKER_PROFILE", "veille-eclaireurs")
 GUARD_PREFIX = "Contrôle de contenu"
+# Le fournisseur du modèle refuse tout tant que son crédit n'est pas rechargé (402 du 14/10 : 12 essais
+# inutiles par demande, 128 épisodes vides en une matinée) : relancer ne change rien.
+PROVIDER_EXHAUSTED_MARKERS = (
+    "Insufficient Balance",
+    "insufficient_quota",
+    "Error code: 402",
+)
 EXTRACTION_CONCURRENCY = 4
 SOURCE_TIMEOUT_SECONDS = 150
 POLL_SECONDS = 15
@@ -477,6 +488,36 @@ async def _finalize(run: Dict[str, Any], job: str) -> None:
     )
 
 
+def provider_exhausted(error: str) -> bool:
+    """Vrai si l'échec vient d'un crédit épuisé chez le fournisseur du modèle: aucun essai suivant ne peut réussir."""
+    return any(marker in error for marker in PROVIDER_EXHAUSTED_MARKERS)
+
+
+async def _delete_episode(episode: Dict[str, Any]) -> None:
+    """Supprime la ligne d'une tentative échouée et son dossier de travail; jamais un épisode doté d'audio."""
+    if episode.get("audio_file"):
+        return
+    try:
+        await repo_delete(str(episode["id"]))
+        output_dir = episode.get("output_dir")
+        if output_dir:
+            directory = Path(os.path.realpath(output_dir))
+            episodes_root = podcasts_root() / "episodes"
+            if directory != episodes_root and directory.is_relative_to(episodes_root):
+                shutil.rmtree(directory, ignore_errors=True)
+    except Exception as exc:  # noqa: BLE001 - un nettoyage raté ne doit jamais faire échouer la production
+        logger.warning(
+            f"[veille] tentative échouée non supprimée ({type(exc).__name__})"
+        )
+
+
+async def _discard_attempt(job: str) -> None:
+    """Une tentative échouée ne laisse aucun épisode derrière elle (l'erreur reste dans le suivi de la veille)."""
+    episode = await _episode_of(job)
+    if episode:
+        await _delete_episode(episode)
+
+
 async def generate(run: Dict[str, Any], content: str, name: str) -> None:
     """Génère l'épisode, avec relances: nouvelle transcription si le contrôle refuse, reprise au clip sinon."""
     run_id = str(run["id"])
@@ -506,7 +547,13 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
         logger.info(
             f"[veille] {run['ref']} essai {attempt}/{limit} échoué : {sanitize(last_error)}"
         )
+        if provider_exhausted(last_error):
+            await _discard_attempt(job)
+            raise ProductionFailed(
+                f"Crédit du fournisseur de modèle épuisé, inutile de relancer : {sanitize(last_error)}"
+            )
         if last_error.startswith(GUARD_PREFIX):
+            await _discard_attempt(job)
             resume_episode_id = (
                 None  # le texte était mauvais: on repart d'une nouvelle transcription
             )
@@ -520,7 +567,20 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
         resume_episode_id = (
             str(episode["id"]) if episode and _is_resumable(episode) else None
         )
+        if episode and not resume_episode_id:
+            await _delete_episode(episode)
+    if resume_episode_id:
+        await _discard_resumable(resume_episode_id)
     raise ProductionFailed(f"Échec après {limit} essais : {sanitize(last_error)}")
+
+
+async def _discard_resumable(episode_id: str) -> None:
+    """L'épisode gardé pour une reprise au clip près, devenu inutile quand la production échoue."""
+    rows = await repo_query(
+        "SELECT * FROM episode WHERE id = $id", {"id": ensure_record_id(episode_id)}
+    )
+    if rows:
+        await _delete_episode(rows[0])
 
 
 # --- orchestration ---------------------------------------------------------

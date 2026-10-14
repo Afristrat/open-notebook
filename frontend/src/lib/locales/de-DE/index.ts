@@ -50,6 +50,7 @@ export const deDE = {
     success: "Erfolg",
     model: "Modell",
     back: "Zurück",
+    previous: "Zurück",
     next: "Weiter",
     done: "Fertig",
     processing: "Verarbeitung...",

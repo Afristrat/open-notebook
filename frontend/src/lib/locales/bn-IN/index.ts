@@ -47,6 +47,7 @@ export const bnIN = {
     success: "সফল",
     model: "মডেল",
     back: "পিছনে",
+    previous: "পূর্ববর্তী",
     next: "পরবর্তী",
     done: "সম্পন্ন",
     processing: "প্রক্রিয়াকরণ...",

@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useState } from 'react'
-import { AlertCircle, Loader2, RefreshCcw } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { AlertCircle, ChevronLeft, ChevronRight, Loader2, RefreshCcw } from 'lucide-react'
 
 import { useDeletePodcastEpisode, usePodcastEpisodes, useRetryPodcastEpisode } from '@/lib/hooks/use-podcasts'
 import { EpisodeCard } from '@/components/podcasts/EpisodeCard'
@@ -52,17 +52,25 @@ function SummaryBadge({ label, value }: { label: string; value: number }) {
 export function EpisodesTab() {
   const { t } = useTranslation()
   const [showGenerateDialog, setShowGenerateDialog] = useState(false)
+  const [page, setPage] = useState(0)
   const {
-    episodes,
     statusGroups,
     statusCounts,
+    totalPages,
     isLoading,
     isError,
     refetch,
     isFetching,
-  } = usePodcastEpisodes()
+  } = usePodcastEpisodes(page)
   const deleteEpisode = useDeletePodcastEpisode()
   const retryEpisode = useRetryPodcastEpisode()
+
+  // A deletion can empty the last page: step back to the last one that still exists.
+  useEffect(() => {
+    if (!isLoading && totalPages > 0 && page >= totalPages) {
+      setPage(totalPages - 1)
+    }
+  }, [isLoading, page, totalPages])
 
   const handleRefresh = useCallback(() => {
     void refetch()
@@ -78,7 +86,7 @@ export function EpisodesTab() {
     [retryEpisode]
   )
 
-  const emptyState = !isLoading && episodes.length === 0
+  const emptyState = !isLoading && statusCounts.total === 0
 
   return (
     <div className="space-y-6">
@@ -172,6 +180,32 @@ export function EpisodesTab() {
           </section>
         )
       })}
+
+      {totalPages > 1 ? (
+        <nav className="flex items-center justify-center gap-3" aria-label={t('podcasts.overviewTitle')}>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((current) => Math.max(current - 1, 0))}
+            disabled={page === 0 || isFetching}
+          >
+            <ChevronLeft className="mr-1 h-4 w-4" />
+            {t('common.previous')}
+          </Button>
+          <span className="text-sm text-muted-foreground tabular-nums" aria-live="polite">
+            {page + 1} / {totalPages}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}
+            disabled={page >= totalPages - 1 || isFetching}
+          >
+            {t('common.next')}
+            <ChevronRight className="ml-1 h-4 w-4" />
+          </Button>
+        </nav>
+      ) : null}
 
       <GeneratePodcastDialog
         open={showGenerateDialog}

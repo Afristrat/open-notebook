@@ -47,6 +47,7 @@ export const frFR = {
     success: "Succès",
     model: "Modèle",
     back: "Retour",
+    previous: "Précédent",
     next: "Suivant",
     done: "Terminé",
     processing: "Traitement...",

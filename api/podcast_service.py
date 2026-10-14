@@ -5,6 +5,7 @@ from loguru import logger
 from pydantic import BaseModel
 from surreal_commands import get_command_status, submit_command
 
+from open_notebook.database.repository import ensure_record_id, repo_query
 from open_notebook.domain.notebook import Notebook
 from open_notebook.podcasts.models import EpisodeProfile, PodcastEpisode, SpeakerProfile
 
@@ -150,6 +151,32 @@ class PodcastService:
             return episodes
         except Exception as e:
             logger.error(f"Failed to list podcast episodes: {e}")
+            raise HTTPException(status_code=500, detail="Failed to list episodes")
+
+    @staticmethod
+    async def list_episode_stubs() -> list:
+        """Newest first, without the heavy fields (transcript, outline, briefing)."""
+        try:
+            return await repo_query(
+                "SELECT id, command, audio_file FROM episode ORDER BY created DESC"
+            )
+        except Exception as e:
+            logger.error(f"Failed to list podcast episode stubs: {e}")
+            raise HTTPException(status_code=500, detail="Failed to list episodes")
+
+    @staticmethod
+    async def get_episodes(episode_ids: list) -> list:
+        """Full episodes for the given ids (unordered)."""
+        if not episode_ids:
+            return []
+        try:
+            rows = await repo_query(
+                "SELECT * FROM episode WHERE id IN $ids",
+                {"ids": [ensure_record_id(i) for i in episode_ids]},
+            )
+            return [PodcastEpisode(**row) for row in rows]
+        except Exception as e:
+            logger.error(f"Failed to load podcast episodes: {e}")
             raise HTTPException(status_code=500, detail="Failed to list episodes")
 
     @staticmethod

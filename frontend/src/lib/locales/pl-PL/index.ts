@@ -47,6 +47,7 @@ export const plPL = {
     success: "Sukces",
     model: "Model",
     back: "Wstecz",
+    previous: "Wstecz",
     next: "Dalej",
     done: "Gotowe",
     processing: "Przetwarzanie...",
