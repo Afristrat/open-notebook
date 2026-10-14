@@ -331,7 +331,7 @@ class TestGenerate:
         assert len(calls["submits"]) == 2 and calls["finalized"] == []
 
     @pytest.mark.asyncio
-    async def test_an_exhausted_provider_credit_stops_at_the_first_attempt(
+    async def test_an_exhausted_provider_credit_stops_after_three_refusals(
         self, store, monkeypatch
     ):
         """14/10 : 402 « Insufficient Balance » relancé 12 fois par demande, 128 épisodes vides en une matinée."""
@@ -348,8 +348,27 @@ class TestGenerate:
         )
         with pytest.raises(pipeline.ProductionFailed, match="Crédit du fournisseur"):
             await pipeline.generate(store.add(), "contenu", "n")
-        assert len(calls["submits"]) == 1
-        assert calls["deleted"] == ["episode:vide"]
+        assert len(calls["submits"]) == 3
+        assert calls["deleted"] == ["episode:vide"] * 3
+
+    @pytest.mark.asyncio
+    async def test_a_lone_credit_refusal_is_retried_on_another_provider(
+        self, store, monkeypatch
+    ):
+        """Le groupe de modèles est réparti: un 402 isolé ne doit pas coûter la production du jour."""
+        calls = _script(
+            monkeypatch,
+            [
+                {
+                    "status": "failed",
+                    "error_message": "Error code: 402 - DeepseekException Insufficient Balance",
+                },
+                {"status": "completed"},
+            ],
+            episode_id="episode:vide",
+        )
+        await pipeline.generate(store.add(), "contenu", "n")
+        assert len(calls["submits"]) == 2 and calls["deleted"] == ["episode:vide"]
 
     @pytest.mark.asyncio
     async def test_a_refused_attempt_leaves_no_episode_behind(self, store, monkeypatch):

@@ -49,6 +49,9 @@ PROVIDER_EXHAUSTED_MARKERS = (
     "insufficient_quota",
     "Error code: 402",
 )
+# Le groupe « cheap » du proxy répartit les appels entre plusieurs fournisseurs: un 402 isole un
+# fournisseur à sec, pas forcément tous. On n'abandonne qu'après plusieurs refus de crédit d'affilée.
+EXHAUSTED_STREAK_LIMIT = 3
 EXTRACTION_CONCURRENCY = 4
 SOURCE_TIMEOUT_SECONDS = 150
 POLL_SECONDS = 15
@@ -489,7 +492,7 @@ async def _finalize(run: Dict[str, Any], job: str) -> None:
 
 
 def provider_exhausted(error: str) -> bool:
-    """Vrai si l'échec vient d'un crédit épuisé chez le fournisseur du modèle: aucun essai suivant ne peut réussir."""
+    """Vrai si l'échec vient d'un crédit épuisé chez un fournisseur du modèle."""
     return any(marker in error for marker in PROVIDER_EXHAUSTED_MARKERS)
 
 
@@ -524,6 +527,7 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
     resume_episode_id: Optional[str] = None
     last_error = ""
     feedback: Optional[str] = None
+    exhausted_streak = 0
     limit = max_attempts()
     for attempt in range(1, limit + 1):
         if time_left(run) <= 0:
@@ -549,9 +553,14 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
         )
         if provider_exhausted(last_error):
             await _discard_attempt(job)
-            raise ProductionFailed(
-                f"Crédit du fournisseur de modèle épuisé, inutile de relancer : {sanitize(last_error)}"
-            )
+            exhausted_streak += 1
+            if exhausted_streak >= EXHAUSTED_STREAK_LIMIT:
+                raise ProductionFailed(
+                    f"Crédit du fournisseur de modèle épuisé ({exhausted_streak} refus d'affilée) : {sanitize(last_error)}"
+                )
+            resume_episode_id = None
+            continue
+        exhausted_streak = 0
         if last_error.startswith(GUARD_PREFIX):
             await _discard_attempt(job)
             resume_episode_id = (
