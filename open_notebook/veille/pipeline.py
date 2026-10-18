@@ -369,6 +369,27 @@ def refusal_feedback(error: str) -> str:
     )
 
 
+def consigne_brief(consigne: Optional[str]) -> Optional[str]:
+    """Reproche de l'auteur de la veille (champ `consigne` de Saqr), formulé pour le briefing de génération.
+
+    Il corrige la production, il ne lève aucune règle du briefing: les faits restent ceux des sources.
+    """
+    text = (consigne or "").strip()
+    if not text:
+        return None
+    return (
+        "L'auteur de la veille a écouté la version précédente de cet épisode et lui reproche ceci : "
+        f"« {text} ». Tiens-en compte dans cette nouvelle version, sans enfreindre aucune règle du "
+        "briefing (longueur, ouverture, clôture, faits tirés des seules sources fournies)."
+    )
+
+
+def briefing_suffix_for(run: Dict[str, Any], feedback: Optional[str]) -> Optional[str]:
+    """Consigne de l'auteur, puis motif du dernier refus du contrôle: les deux s'ajoutent au briefing."""
+    parts = [p for p in (consigne_brief(run.get("consigne")), feedback) if p]
+    return "\n\n".join(parts) or None
+
+
 async def _wait(job: str, run: Dict[str, Any]) -> Dict[str, Any]:
     while True:
         if time_left(run) <= 0 and (
@@ -537,9 +558,10 @@ async def generate(run: Dict[str, Any], content: str, name: str) -> None:
         await runs.update_run(
             run_id, tentatives=attempt, etape=f"generation {attempt}/{limit}"
         )
+        suffix = briefing_suffix_for(run, feedback)
         job = await (
-            _submit(name, content, resume_episode_id, briefing_suffix=feedback)
-            if feedback
+            _submit(name, content, resume_episode_id, briefing_suffix=suffix)
+            if suffix
             else _submit(name, content, resume_episode_id)
         )
         await runs.update_run(run_id, job=job)

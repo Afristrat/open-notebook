@@ -34,17 +34,23 @@ class FakeStore:
         row = next((r for r in self.rows.values() if r["ref"] == ref), None)
         return dict(row) if row else None
 
-    async def create_run(self, ref, revision, titre, date_publication, page_url) -> Dict[str, Any]:
-        return self.add(ref, revision)
+    async def create_run(
+        self, ref, revision, titre, date_publication, page_url, consigne=None
+    ) -> Dict[str, Any]:
+        return self.add(ref, revision, **({"consigne": consigne} if consigne else {}))
 
-    async def relaunch_run(self, run_id, revision, titre, date_publication, page_url) -> None:
+    async def relaunch_run(
+        self, run_id, revision, titre, date_publication, page_url, consigne=None
+    ) -> None:
         row = self.rows[run_id]
-        for key in ("etape", "job", "episode", "audio_url", "duree_s", "erreur", "rapport", "battement"):
+        for key in ("consigne", "etape", "job", "episode", "audio_url", "duree_s", "erreur", "rapport", "battement"):
             row.pop(key, None)
         row.update(
             revision=revision, statut="accepte", tentatives=0, rappel_statut="a_envoyer",
             rappel_tentatives=0, reprises=0, echeance=time.time() + runs.deadline_seconds(),
         )
+        if consigne:
+            row["consigne"] = consigne
 
     async def update_run(self, run_id: str, **fields: Any) -> None:
         for key, value in fields.items():

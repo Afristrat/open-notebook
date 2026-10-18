@@ -46,6 +46,7 @@ async def create_run(
     titre: Optional[str],
     date_publication: Optional[str],
     page_url: Optional[str],
+    consigne: Optional[str] = None,
 ) -> Dict[str, Any]:
     data: Dict[str, Any] = {
         "ref": ref, "revision": revision, "statut": "accepte", "tentatives": 0,
@@ -53,7 +54,10 @@ async def create_run(
         "echeance": time.time() + deadline_seconds(),
     }
     # Un champ optionnel absent reste NONE: un None envoyé serait lu comme NULL et refusé.
-    for key, value in (("titre", titre), ("date_publication", date_publication), ("page_url", page_url)):
+    for key, value in (
+        ("titre", titre), ("date_publication", date_publication), ("page_url", page_url),
+        ("consigne", consigne),
+    ):
         if value:
             data[key] = value
     await repo_create("veille_run", data)
@@ -69,18 +73,19 @@ async def relaunch_run(
     titre: Optional[str],
     date_publication: Optional[str],
     page_url: Optional[str],
+    consigne: Optional[str] = None,
 ) -> None:
     """Repart de zéro sur une veille dont l'essai précédent a échoué."""
     await repo_query(
         "UPDATE $id SET revision = $revision, titre = $titre ?? NONE, "
-        "date_publication = $date ?? NONE, page_url = $page ?? NONE, statut = 'accepte', "
+        "date_publication = $date ?? NONE, page_url = $page ?? NONE, consigne = $consigne ?? NONE, statut = 'accepte', "
         "etape = NONE, job = NONE, episode = NONE, audio_url = NONE, duree_s = NONE, "
         "erreur = NONE, rapport = NONE, tentatives = 0, rappel_statut = 'a_envoyer', "
         "rappel_tentatives = 0, reprises = 0, battement = NONE, echeance = $echeance, "
         "updated = time::now()",
         {
             "id": ensure_record_id(run_id), "revision": revision, "titre": titre,
-            "date": date_publication, "page": page_url,
+            "date": date_publication, "page": page_url, "consigne": consigne,
             "echeance": time.time() + deadline_seconds(),
         },
     )

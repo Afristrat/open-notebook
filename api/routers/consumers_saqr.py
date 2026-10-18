@@ -71,6 +71,8 @@ class VeillePodcastRequest(BaseModel):
     titre: Optional[str] = Field(default=None, max_length=300)
     date_publication: Optional[str] = Field(default=None, max_length=32)
     url: Optional[str] = Field(default=None, max_length=1000)
+    # Ce que l'auteur reproche à la version précédente de l'épisode: repris dans le briefing de génération.
+    consigne: Optional[str] = Field(default=None, max_length=2000)
     contractVersion: Optional[str] = None
 
 
@@ -85,11 +87,12 @@ async def request_veille_podcast(
             CONTRACT_VERSION_UNSUPPORTED, details={"supported": [CONTRACT_VERSION]}
         )
 
+    consigne = (body.consigne or "").strip() or None
     run = await runs.get_run(body.ref)
     if run is None:
         try:
             run = await runs.create_run(
-                body.ref, body.revision, body.titre, body.date_publication, body.url
+                body.ref, body.revision, body.titre, body.date_publication, body.url, consigne
             )
         except Exception:
             # Deux demandes simultanées: l'index unique sur ref a refusé la seconde.
@@ -106,7 +109,7 @@ async def request_veille_podcast(
         # Essai précédent échoué (relançable), ou nouvelle version d'une veille déjà terminée:
         # l'ancien podcast est obsolète, on repart sur la version demandée.
         await runs.relaunch_run(
-            str(run["id"]), body.revision, body.titre, body.date_publication, body.url
+            str(run["id"]), body.revision, body.titre, body.date_publication, body.url, consigne
         )
         run = await runs.get_run(body.ref)
     else:

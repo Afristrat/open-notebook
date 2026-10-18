@@ -1,0 +1,8 @@
+-- Migration 32: consigne d'auteur sur le suivi des podcasts de veille de Saqr.
+--
+-- Ce que l'auteur de la veille reproche a la version precedente de l'episode (10 a 2000 signes),
+-- transmise par Saqr dans la demande de production et reprise dans le briefing de generation.
+--
+-- ATTENTION: aucun commentaire de fin de ligne (voir 29.surrealql).
+
+DEFINE FIELD IF NOT EXISTS consigne ON TABLE veille_run TYPE option<string>;

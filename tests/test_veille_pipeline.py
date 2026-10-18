@@ -244,6 +244,30 @@ class TestGenerate:
         assert store.by_ref(REF)["tentatives"] == 2
 
     @pytest.mark.asyncio
+    async def test_the_authors_consigne_reaches_every_attempt_before_the_refusal_reason(
+        self, store, monkeypatch
+    ):
+        calls = _script(
+            monkeypatch,
+            [
+                {"status": "failed", "error_message": GUARD_REFUSAL},
+                {"status": "completed"},
+            ],
+        )
+        run = store.add(consigne="Trop de jargon, Younes coupe la parole.")
+        await pipeline.generate(run, "contenu", "n")
+        first, second = calls["suffixes"]
+        assert "reproche ceci : « Trop de jargon, Younes coupe la parole. »" in first
+        assert "REFUSÉE" not in first
+        assert second.startswith(first) and "REFUSÉE" in second
+
+    @pytest.mark.asyncio
+    async def test_without_a_consigne_the_briefing_is_left_untouched(self, store, monkeypatch):
+        calls = _script(monkeypatch, [{"status": "completed"}])
+        await pipeline.generate(store.add(), "contenu", "n")
+        assert calls["suffixes"] == [None]
+
+    @pytest.mark.asyncio
     async def test_the_refusal_reason_is_sent_to_the_next_attempt_only(
         self, store, monkeypatch
     ):

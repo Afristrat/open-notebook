@@ -1,0 +1,5 @@
+-- Migration 32 (retour arriere): retire la consigne d'auteur du suivi des podcasts de veille.
+--
+-- ATTENTION: aucun commentaire de fin de ligne (voir 29.surrealql).
+
+REMOVE FIELD IF EXISTS consigne ON TABLE veille_run;

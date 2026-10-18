@@ -134,6 +134,37 @@ class TestRequest:
         assert again.status_code == 202 and again.json()["idempotent"] is True and again.json()["statut"] == "pret"
         assert len(submitted) == 1
 
+    def test_the_consigne_of_the_author_is_stored_on_the_run(self, client, store):
+        consigne = "Les invités se coupent la parole et le fil de l'épisode se perd."
+        response = client.post(URL, json={**BODY, "consigne": f"  {consigne}  "}, headers=_auth())
+        assert response.status_code == 202
+        assert store.by_ref("veille-2026-10-02")["consigne"] == consigne
+
+    def test_a_blank_or_absent_consigne_stores_nothing(self, client, store):
+        client.post(URL, json={**BODY, "consigne": "   "}, headers=_auth())
+        assert "consigne" not in store.by_ref("veille-2026-10-02")
+
+    def test_a_consigne_beyond_2000_characters_is_refused(self, client):
+        response = client.post(URL, json={**BODY, "consigne": "x" * 2001}, headers=_auth())
+        assert response.status_code == 422
+        assert client.post(URL, json={**BODY, "consigne": "x" * 2000}, headers=_auth()).status_code == 202
+
+    def test_a_regeneration_replaces_the_previous_consigne(self, client, submitted, store):
+        client.post(URL, json={**BODY, "consigne": "Première remarque de l'auteur."}, headers=_auth())
+        store.by_ref("veille-2026-10-02").update(statut="pret", audio_url="https://d/vieux")
+        again = client.post(
+            URL,
+            json={**BODY, "revision": "hash-1.g2", "consigne": "Seconde remarque de l'auteur."},
+            headers=_auth(),
+        )
+        assert again.status_code == 202 and again.json()["idempotent"] is False
+        assert store.by_ref("veille-2026-10-02")["consigne"] == "Seconde remarque de l'auteur."
+        # Une régénération sans consigne n'hérite pas de l'ancienne.
+        store.by_ref("veille-2026-10-02").update(statut="pret")
+        client.post(URL, json={**BODY, "revision": "hash-1.g3"}, headers=_auth())
+        assert "consigne" not in store.by_ref("veille-2026-10-02")
+        assert len(submitted) == 3
+
     def test_a_malformed_ref_is_refused(self, client):
         response = client.post(URL, json={**BODY, "ref": "demain"}, headers=_auth())
         assert response.status_code == 422
