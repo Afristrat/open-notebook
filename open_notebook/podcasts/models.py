@@ -10,12 +10,16 @@ from open_notebook.domain.base import ObjectModel
 
 
 async def _resolve_model_config(
-    model_id: str, max_tokens: Optional[int] = None
+    model_id: str, max_tokens: Optional[int] = None, language: bool = False
 ) -> Tuple[str, str, dict]:
     """Load Model record, resolve credential -> (provider, model_name, config_dict).
 
     Used by resolve_outline_config, resolve_transcript_config, resolve_tts_config,
     and per-speaker TTS overrides. Optionally passes through a max_tokens override.
+
+    ``language=True`` (plan et script) retire ``top_p``: Esperanto l'impose à 0.9 et le
+    groupe LiteLLM « cheap » route vers Moonshot, qui répond 400 à tout autre ``top_p``
+    que 0.95. ``None`` est écarté de l'appel par le fournisseur.
     """
     from open_notebook.ai.models import Model, resolve_anthropic_compatible_config
 
@@ -34,6 +38,8 @@ async def _resolve_model_config(
         provider, config = await resolve_anthropic_compatible_config(config)
     if max_tokens is not None:
         config = {**config, "max_tokens": max_tokens}
+    if language:
+        config = {**config, "top_p": None}
     return (provider, model.name, config)
 
 
@@ -122,7 +128,9 @@ class EpisodeProfile(ObjectModel):
                 f"Episode profile '{self.name}' has no outline model configured. "
                 "Please update the profile to select an outline model."
             )
-        return await _resolve_model_config(self.outline_llm, max_tokens=self.max_tokens)
+        return await _resolve_model_config(
+            self.outline_llm, max_tokens=self.max_tokens, language=True
+        )
 
     async def resolve_transcript_config(self) -> Tuple[str, str, dict]:
         """Resolve transcript model -> (provider, model_name, config_dict)"""
@@ -132,7 +140,7 @@ class EpisodeProfile(ObjectModel):
                 "Please update the profile to select a transcript model."
             )
         return await _resolve_model_config(
-            self.transcript_llm, max_tokens=self.max_tokens
+            self.transcript_llm, max_tokens=self.max_tokens, language=True
         )
 
     @classmethod
