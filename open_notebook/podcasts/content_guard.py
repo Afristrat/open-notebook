@@ -424,15 +424,16 @@ def check_transcript(
     if word_range is not None:
         total = sum(len(line.split()) for line in lines)
         low, high = word_range
-        if not low <= total <= high:
-            report.violations.append(
-                GuardIssue(
-                    0,
-                    "duree_hors_cible",
-                    f"{total} mots (cible {low} à {high}, soit environ "
-                    f"{round(low / WORDS_PER_MINUTE)} à {round(high / WORDS_PER_MINUTE)} minutes de voix)",
-                )
-            )
+        detail = (
+            f"{total} mots (cible {low} à {high}, soit environ "
+            f"{round(low / WORDS_PER_MINUTE)} à {round(high / WORDS_PER_MINUTE)} minutes de voix)"
+        )
+        if total < low:
+            report.violations.append(GuardIssue(0, "duree_hors_cible", detail))
+        elif total > high:
+            # Décision d'Amine, 19/10 : un script plus long que le maximum est accepté. Le 19/10, 14 sources
+            # citées donnaient 4 200 à 4 400 mots à chaque essai et la veille n'aboutissait jamais.
+            report.warnings.append(GuardIssue(0, "duree_au_dessus_cible", detail))
     corpus_folded = _fold(corpus)
     allowed_numbers = set(_numbers(extra_allowed))
     for comma_is_thousands in (True, False):
@@ -571,6 +572,6 @@ async def content_guard_node(
         )
     logger.info(
         f"[guard] transcription conforme aux sources "
-        f"({len(report.warnings)} avertissement(s) sur des noms propres)"
+        f"({len(report.warnings)} avertissement(s))"
     )
     return {}

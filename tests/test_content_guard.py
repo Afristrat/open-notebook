@@ -147,11 +147,12 @@ class TestLength:
             cg.check_transcript(lines, "mot", word_range=(1100, 2000)).violations == []
         )
 
-    def test_too_long_transcript_is_a_violation(self):
+    def test_too_long_transcript_is_accepted_with_a_warning(self):
         lines = ["mot " * 100] * 43
         report = cg.check_transcript(lines, "mot", word_range=(1100, 2000))
-        assert [v.kind for v in report.violations] == ["duree_hors_cible"]
-        assert "4300 mots" in report.violations[0].detail
+        assert report.violations == []
+        assert [w.kind for w in report.warnings] == ["duree_au_dessus_cible"]
+        assert "4300 mots" in report.warnings[0].detail
 
     def test_too_short_transcript_is_a_violation(self):
         report = cg.check_transcript(["mot " * 50], "mot", word_range=(1100, 2000))
@@ -161,7 +162,7 @@ class TestLength:
         assert cg.check_transcript(["mot " * 5000], "mot").violations == []
 
     @pytest.mark.asyncio
-    async def test_node_refuses_an_over_long_transcript_before_any_voice(
+    async def test_node_lets_an_over_long_transcript_through_to_the_voices(
         self, tmp_path
     ):
         content = f"veille\n{cg.SOURCES_DELIMITER}\nmot"
@@ -173,8 +174,7 @@ class TestLength:
             "speaker_profile": SimpleNamespace(speakers=[]),
         }
 
-        with pytest.raises(ValueError, match="aucune voix générée"):
-            await cg.content_guard_node(state)
+        assert await cg.content_guard_node(state) == {}
 
 
 class TestScales:
@@ -508,14 +508,15 @@ class TestRegressionOfTheDay03:
             == []
         )
 
-    def test_a_far_too_long_transcript_is_still_refused(self):
+    def test_a_transcript_above_the_maximum_is_no_longer_refused(self):
         lines = [
             "mot " * 100
-        ] * 34  # 3 400 mots : au-dessus du plafond relevé à 3 200 (04/10/2026)
+        ] * 44  # 4 400 mots, comme les essais du 19/10 : accepté sur décision d'Amine
         report = cg.check_transcript(
             lines, "mot", word_range=(cg.MIN_WORDS, cg.MAX_WORDS)
         )
-        assert [v.kind for v in report.violations] == ["duree_hors_cible"]
+        assert report.violations == []
+        assert [w.kind for w in report.warnings] == ["duree_au_dessus_cible"]
 
     def test_a_source_decimal_said_rounded_in_words_is_accepted(self):
         for line in (

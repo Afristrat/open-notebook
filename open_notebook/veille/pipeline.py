@@ -10,7 +10,6 @@ Règles de fiabilité (recette du 30/09 au 02/10/2026):
 
 import asyncio
 import os
-import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -347,29 +346,12 @@ async def _submit(
     )
 
 
-_LENGTH_REASON = re.compile(r"(?P<words>\d+) mots \(cible (?P<low>\d+) à (?P<high>\d+)")
-
-
 def refusal_feedback(error: str) -> str:
     """Consigne de l'essai suivant: le motif exact du refus du contrôle, à corriger point par point.
 
     Constaté le 03/10 : relancer à l'identique ne change rien (Hanae restait à 14-18 % sur 10 essais).
     """
     reasons = error[len(GUARD_PREFIX) :].lstrip(" :")
-    measured = _LENGTH_REASON.search(reasons)
-    if measured and int(measured["words"]) > int(measured["high"]):
-        # Le 19/10, 14 sources citées: la consigne « 18 répliques pour CHAQUE source » ajoutée à une
-        # transcription déjà trop longue la gardait à 4 200-4 400 mots pour 3 200 au plus, sur 4 essais.
-        words, high = int(measured["words"]), int(measured["high"])
-        return (
-            "La transcription précédente a été REFUSÉE par le contrôle de contenu : "
-            f"{reasons}. Elle était TROP LONGUE ({words} mots pour {high} au plus, soit {words - high} mots "
-            "de trop). Écris une nouvelle transcription PLUS COURTE, de 90 à 110 répliques au total, "
-            "ouverture et clôture comprises : au plus 6 sources avec 10 à 12 répliques chacune (choisis les 6 "
-            "qui comptent le plus), les autres sources étant seulement nommées en une phrase dans le "
-            "croisement des sources, puis deux mini-débats d'analyse de 8 répliques chacun. Chaque réplique "
-            "fait 22 mots en moyenne. SUPPRIME des répliques, ne te contente pas de les raccourcir."
-        )
     if "duree_hors_cible" in reasons:
         return (
             "La transcription précédente a été REFUSÉE par le contrôle de contenu : "

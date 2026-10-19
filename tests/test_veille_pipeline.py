@@ -296,21 +296,6 @@ class TestGenerate:
         assert "sans allonger" not in feedback
         assert "18 répliques pour CHAQUE source" in feedback
 
-    def test_a_too_long_transcript_is_asked_to_shrink_not_to_grow(self):
-        feedback = pipeline.refusal_feedback(
-            f"{pipeline.GUARD_PREFIX} : 1 écart(s). ligne 0 (duree_hors_cible) 4337 mots (cible 2100 à 3200, "
-            "soit environ 13 à 20 minutes de voix)"
-        )
-        assert "TROP LONGUE" in feedback and "1137 mots de trop" in feedback
-        assert "PLUS COURTE" in feedback and "SUPPRIME" in feedback
-        assert "18 répliques pour CHAQUE source" not in feedback
-
-    def test_a_too_short_transcript_still_gets_the_lengthening_instruction(self):
-        feedback = pipeline.refusal_feedback(
-            f"{pipeline.GUARD_PREFIX} : 1 écart(s). ligne 0 (duree_hors_cible) 1340 mots (cible 2100 à 3200)"
-        )
-        assert "TROP LONGUE" not in feedback
-
     @pytest.mark.asyncio
     async def test_a_voice_outage_resumes_the_same_episode_at_the_clip(
         self, store, monkeypatch, tmp_path
