@@ -333,13 +333,29 @@ def alteration_rate(results: List[SourceResult]) -> float:
     return sum(r.statut in ALTERED for r in results) / len(results) if results else 1.0
 
 
+# Le contenu part entier dans chaque appel de génération (plan, puis chaque segment de transcription).
+# Constaté le 19/10 : 29 sources intégrales = 1 050 457 caractères, soit 302 568 tokens demandés pour
+# une fenêtre de 262 144 chez Moonshot. Plafond par source : 15 000 caractères (~29 sources = 435 000).
+# ponytail: plafond fixe par source, pas de répartition budgétaire, réexaminer si une veille dépasse 35 sources.
+TEXTE_MAX_PAR_SOURCE = 15_000
+
+
+def borne_texte(text: str, maximum: int = TEXTE_MAX_PAR_SOURCE) -> str:
+    """Tronque au dernier saut de paragraphe avant le plafond, sans marqueur lu à voix haute."""
+    if len(text) <= maximum:
+        return text
+    coupe = text.rfind("\n\n", 0, maximum)
+    return text[: coupe if coupe > 0 else maximum].rstrip()
+
+
 def build_content(ref: str, markdown: str, sources: List[Tuple[str, str]]) -> str:
     """Contenu du podcast: fil conducteur de Saqr, date, puis les sources lues DANS le notebook.
 
     `sources` = (titre, texte intégral) tels qu'enregistrés dans le notebook de la production.
+    Le texte transmis est borné par source; le notebook garde, lui, le texte intégral.
     """
     date = french_date(ref)
-    corpus = "\n\n".join(f"{title}\n{text}" for title, text in sources)
+    corpus = "\n\n".join(f"{title}\n{borne_texte(text)}" for title, text in sources)
     return (
         f"Veille du {date}. Fil conducteur de l'éditeur (jamais une source) :\n"
         f"{split_veille(markdown)}\n\nDate de la veille : {date}\n\n"

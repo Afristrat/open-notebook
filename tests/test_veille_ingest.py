@@ -296,6 +296,32 @@ class TestContent:
     def test_the_report_never_carries_the_texts(self):
         assert "texte" not in self._result(1, ingest.INGEREE).report()
 
+    def test_a_long_source_is_cut_at_a_paragraph_before_the_cap(self):
+        paragraphe = "Phrase de remplissage. " * 100  # 2 300 caractères
+        long_text = "\n\n".join([paragraphe] * 20)  # 46 000 caractères
+        borne = ingest.borne_texte(long_text)
+        assert len(borne) <= ingest.TEXTE_MAX_PAR_SOURCE
+        assert long_text.startswith(borne)
+        assert borne.endswith(
+            "remplissage."
+        )  # coupe sur un saut de paragraphe, pas au milieu d'une phrase
+
+    def test_a_short_source_is_left_intact(self):
+        assert ingest.borne_texte("Court.\n\nEncore.") == "Court.\n\nEncore."
+
+    def test_build_content_bounds_every_source_but_keeps_its_title(self):
+        geant = ("Paragraphe de test. " * 50 + "\n\n") * 40  # 40 000+ caractères
+        content = ingest.build_content(
+            "veille-2026-10-19",
+            "Corps.",
+            [("[Source 1] Géant", geant), ("[Source 2] Court", "Court.")],
+        )
+        corpus = cg.extract_corpus(content)
+        assert "[Source 1] Géant" in corpus and "[Source 2] Court" in corpus
+        assert len(geant) > 40_000
+        assert len(corpus) < ingest.TEXTE_MAX_PAR_SOURCE + 200
+        assert "Court." in corpus
+
 
 class TestRegressionOfTheDay:
     """Le 02/10, 71,5 % et 67,2 % venaient du CORPS d'un article, pas de sa page de résumé."""
